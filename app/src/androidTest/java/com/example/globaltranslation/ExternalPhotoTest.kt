@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
 import android.view.MotionEvent
-import com.example.globaltranslation.core.util.fitPhoto
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -105,19 +104,30 @@ class ExternalPhotoTest {
                 view.layout(0, 0, 984, 1250)
                 val bitmap = Bitmap.createBitmap(984, 1250, Bitmap.Config.ARGB_8888)
                 view.draw(Canvas(bitmap))
+                assertEquals(state.blocks.size, view.placements.size)
+                assertTrue("Short rows must remain complete at default zoom", view.placements.filter { placement ->
+                    state.blocks.first { it.id == placement.blockId }.text.matches(Regex("^\\d+\\..*", RegexOption.DOT_MATCHES_ALL))
+                }.let { rows -> rows.size == 21 && rows.none { it.abbreviated } })
+                assertTrue("Photo should display all supplied translations", view.placements.none { it.abbreviated })
+                for ((i, a) in view.placements.withIndex()) for (b in view.placements.drop(i + 1)) {
+                    assertFalse("Overlapping translations: ${a.blockId}/${b.blockId}",
+                        a.bounds.left < b.bounds.right && b.bounds.left < a.bounds.right &&
+                        a.bounds.top < b.bounds.bottom && b.bounds.top < a.bounds.bottom)
+                }
                 state.blocks.forEach { block ->
                     val placement = view.placements.firstOrNull { it.blockId == block.id }
                     entries.put(JSONObject().put("id", block.id).put("source", block.text)
                         .put("translation", state.translations[block.id])
                         .put("bounds", JSONArray(listOf(block.bounds.left, block.bounds.top, block.bounds.right, block.bounds.bottom)))
-                        .put("abbreviated", placement?.abbreviated).put("fontPx", placement?.fontSizePx))
+                        .put("abbreviated", placement?.abbreviated).put("fontPx", placement?.fontSizePx)
+                        .put("placement", placement?.bounds?.let { JSONArray(listOf(it.left, it.top, it.right, it.bottom)) }))
                 }
                 File(output, "$mode-overlay.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 bitmap.recycle()
             }
             results.put(JSONObject().put("mode", mode).put("elapsedMs", System.currentTimeMillis() - started).put("blocks", entries))
         }
-        if (!replay) File(output, "result.json").writeText(JSONObject().put("width", photo.width).put("height", photo.height)
+        File(output, if (replay) "layout-result.json" else "result.json").writeText(JSONObject().put("width", photo.width).put("height", photo.height)
             .put("ocrMillis", ocrMillis).put("ocrRuns", ocrCount).put("results", results).toString(2))
         val text = vm.uiState.value.blocks.joinToString("\n") { it.text }
         assertTrue("Title missing", text.contains("Bouddha"))
@@ -131,7 +141,8 @@ class ExternalPhotoTest {
         compose.runOnIdle {
             overlay = requireNotNull(findOverlay(compose.activity.window.decorView))
             val block = vm.uiState.value.blocks.first { it.text.startsWith("1.") }
-            val area = fitPhoto(photo.width, photo.height, overlay.width, overlay.height).map(block.bounds)
+            assertTrue("Actual App viewport must show complete translations", overlay.placements.none { it.abbreviated })
+            val area = overlay.placements.first { it.blockId == block.id }.bounds
             val event = MotionEvent.obtain(0, 1, MotionEvent.ACTION_UP, (area.left + area.right) / 2, (area.top + area.bottom) / 2, 0)
             overlay.onTouchEvent(event); event.recycle()
         }

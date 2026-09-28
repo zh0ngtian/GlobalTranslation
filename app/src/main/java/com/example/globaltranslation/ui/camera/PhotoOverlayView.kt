@@ -8,7 +8,6 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
-import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ScaleGestureDetector
@@ -32,7 +31,6 @@ class PhotoOverlayView(context: Context) : View(context) {
     private var click: (PhotoTextBlock) -> Unit = {}
     private val background = Paint().apply { color = Color.rgb(255, 253, 246) }
     private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(22, 22, 25) }
     private val missingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(186, 26, 26); style = Paint.Style.STROKE; strokeWidth = 2 * resources.displayMetrics.density
     }
@@ -67,10 +65,14 @@ class PhotoOverlayView(context: Context) : View(context) {
     private var hitRects = emptyList<RectF>()
     var placements: List<OverlayPlacement> = emptyList()
         private set
-    val minimumFontPx get() = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 12f, resources.displayMetrics)
+    private data class RenderedBlock(
+        val source: RectF, val rect: RectF, val layout: StaticLayout?,
+        val fontSize: Float, val abbreviated: Boolean, val backgroundColor: Int
+    )
+    private var rendered = emptyList<RenderedBlock?>()
     private val accessibility = object : ExploreByTouchHelper(this) {
         override fun getVirtualViewAt(x: Float, y: Float): Int = hitIndex(x, y).takeIf { it >= 0 } ?: INVALID_ID
-        override fun getVisibleVirtualViews(ids: MutableList<Int>) { ids.addAll(hitRects.indices) }
+        override fun getVisibleVirtualViews(ids: MutableList<Int>) { ids.addAll(hitRects.indices.filter { !hitRects[it].isEmpty }) }
         override fun onPopulateNodeForVirtualView(id: Int, node: AccessibilityNodeInfoCompat) {
             val block = blocks.getOrNull(id)
             node.contentDescription = block?.let { translations[it.id] ?: "未完成翻译：${it.text}" } ?: "文字"
@@ -100,9 +102,88 @@ class PhotoOverlayView(context: Context) : View(context) {
         if (bitmap === photo && blocks == values && translations == translated) return
         if (bitmap !== photo) { zoom = 1f; panX = 0f; panY = 0f }
         bitmap = photo; blocks = values; translations = translated
+        rendered = prepareText(photo)
         hitRects = emptyList()
         invalidate()
         accessibility.invalidateRoot()
+    }
+
+    /** Measure once in photo pixels. Pinching scales the same glyphs, without reflowing the text. */
+    private fun prepareText(photo: Bitmap): List<RenderedBlock?> {
+        val sources = blocks.map { block ->
+            TextBounds(block.bounds.left - 2, block.bounds.top - 2,
+                block.bounds.right + 2, block.bounds.bottom + 2).clipped(photo.width, photo.height)?.toRectF()
+        }
+        val areas = sources.map { it?.let(::RectF) }
+        // OCR can return slightly overlapping rows. Share the overlap before laying out glyphs.
+        for (i in sources.indices) for (j in i + 1 until sources.size) {
+            val a = sources[i] ?: continue
+            val b = sources[j] ?: continue
+            if (!RectF.intersects(a, b)) continue
+            val upper = if (a.centerY() <= b.centerY()) i else j
+            val lower = if (upper == i) j else i
+            val boundary = (maxOf(a.top, b.top) + minOf(a.bottom, b.bottom)) / 2
+            areas[upper]?.let { it.bottom = minOf(it.bottom, boundary) }
+            areas[lower]?.let { it.top = maxOf(it.top, boundary) }
+        }
+        return blocks.mapIndexed { index, block ->
+            val source = sources[index] ?: return@mapIndexed null
+            val rect = areas[index]?.takeIf { it.width() > 0 && it.height() > 0 } ?: source
+            val translated = translations[block.id]
+            val color = sampleBackground(photo, source)
+            if (translated == null) return@mapIndexed RenderedBlock(source, rect, null, 0f, false, color)
+            val padding = minOf(photo.width / 960f, rect.width() / 8, rect.height() / 8)
+            val availableWidth = (rect.width() - 2 * padding).toInt().coerceAtLeast(1)
+            val availableHeight = (rect.height() - 2 * padding).coerceAtLeast(0f)
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = if (Color.red(color) * .299 + Color.green(color) * .587 + Color.blue(color) * .114 > 90)
+                    Color.rgb(22, 22, 25) else Color.WHITE
+            }
+            fun layout(size: Float, maxLines: Int = Int.MAX_VALUE, ellipsize: Boolean = false): StaticLayout {
+                paint.textSize = size
+                return StaticLayout.Builder.obtain(translated, 0, translated.length, paint, availableWidth)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false)
+                    .setBreakStrategy(LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
+                    .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
+                    .setMaxLines(maxLines)
+                    .apply { if (ellipsize) setEllipsize(TextUtils.TruncateAt.END) }
+                    .build()
+            }
+            val sourceLineHeight = block.bounds.height / block.text.lines().size.coerceAtLeast(1)
+            val preferred = minOf(sourceLineHeight, photo.width / 40f).coerceAtLeast(1f)
+            val minimum = (preferred * .35f).coerceAtLeast(1f)
+            fun fits(candidate: StaticLayout) = candidate.height <= availableHeight &&
+                (0 until candidate.lineCount).all { candidate.getLineWidth(it) <= availableWidth }
+            var size = minimum
+            var best = layout(size)
+            val abbreviated = !fits(best)
+            if (!abbreviated) {
+                var low = minimum
+                var high = preferred
+                repeat(10) {
+                    val candidateSize = (low + high) / 2
+                    if (fits(layout(candidateSize))) { low = candidateSize; size = candidateSize }
+                    else high = candidateSize
+                }
+                best = layout(size)
+            } else {
+                val lines = (0 until best.lineCount).count { best.getLineBottom(it) <= availableHeight }
+                best = layout(minimum, lines.coerceAtLeast(1), true)
+            }
+            paint.textSize = size
+            RenderedBlock(source, rect, best, size, abbreviated, color)
+        }
+    }
+
+    /** An opaque local color hides source text without conspicuous white cards on a paper photo. */
+    private fun sampleBackground(photo: Bitmap, rect: RectF): Int {
+        val samples = (0..7).flatMap { step ->
+            val x = rect.left + rect.width() * step / 7
+            val y = rect.top + rect.height() * step / 7
+            listOf(x to rect.top, x to rect.bottom, rect.left to y, rect.right to y)
+        }.map { (x, y) -> photo.getPixel(x.toInt().coerceIn(0, photo.width - 1), y.toInt().coerceIn(0, photo.height - 1)) }
+        fun median(channel: (Int) -> Int) = samples.map(channel).sorted()[samples.size / 2]
+        return Color.rgb(median(Color::red), median(Color::green), median(Color::blue))
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -115,86 +196,46 @@ class PhotoOverlayView(context: Context) : View(context) {
         val transform = PhotoTransform(base.scale * zoom,
             width / 2f + (base.offsetX - width / 2f) * zoom + panX,
             height / 2f + (base.offsetY - height / 2f) * zoom + panY)
-        val photoBounds = transform.map(TextBounds(0f, 0f, photo.width.toFloat(), photo.height.toFloat()))
-        val imageRect = photoBounds.toRectF()
+        val imageRect = transform.map(TextBounds(0f, 0f, photo.width.toFloat(), photo.height.toFloat())).toRectF()
         canvas.drawBitmap(photo, null, imageRect, imagePaint)
         canvas.save()
         canvas.clipRect(imageRect)
+        canvas.translate(transform.offsetX, transform.offsetY)
+        canvas.scale(transform.scale, transform.scale)
+        // Mask every source first, so a later OCR box cannot erase an earlier translation.
+        rendered.filterNotNull().filter { it.layout != null }.forEach {
+            background.color = it.backgroundColor
+            canvas.drawRect(it.source, background)
+        }
         val laidOut = mutableListOf<OverlayPlacement>()
         val hitAreas = mutableListOf<RectF>()
         val minTouch = 48 * resources.displayMetrics.density
-        blocks.forEach { block ->
-            val clipped = TextBounds(block.bounds.left - 2, block.bounds.top - 2, block.bounds.right + 2, block.bounds.bottom + 2).clipped(photo.width, photo.height)
-            if (clipped == null) {
-                hitAreas += RectF()
-                return@forEach
-            }
-            val mapped = transform.map(clipped)
+        rendered.forEachIndexed { index, item ->
+            if (item == null) { hitAreas += RectF(); return@forEachIndexed }
+            val rect = item.rect
+            val mapped = transform.map(TextBounds(rect.left, rect.top, rect.right, rect.bottom))
             val bounds = mapped.clipped(width, height)
-            if (bounds == null) { hitAreas += RectF(); return@forEach }
-            val rect = mapped.toRectF()
-            val hit = RectF(rect.centerX() - max(rect.width(), minTouch) / 2,
-                rect.centerY() - max(rect.height(), minTouch) / 2,
-                rect.centerX() + max(rect.width(), minTouch) / 2,
-                rect.centerY() + max(rect.height(), minTouch) / 2)
+            if (bounds == null) { hitAreas += RectF(); return@forEachIndexed }
+            val screen = mapped.toRectF()
+            val hit = RectF(screen.centerX() - max(screen.width(), minTouch) / 2,
+                screen.centerY() - max(screen.height(), minTouch) / 2,
+                screen.centerX() + max(screen.width(), minTouch) / 2,
+                screen.centerY() + max(screen.height(), minTouch) / 2)
             hit.intersect(imageRect)
             hit.intersect(0f, 0f, width.toFloat(), height.toFloat())
             hitAreas += hit
-            val translated = translations[block.id]
-            if (translated == null) {
+            if (item.layout == null) {
+                missingPaint.strokeWidth = 2 * resources.displayMetrics.density / transform.scale
                 canvas.drawRect(rect, missingPaint)
-                return@forEach
+                return@forEachIndexed
             }
-            canvas.drawRect(rect, background)
+            val padding = minOf(photo.width / 960f, rect.width() / 8, rect.height() / 8)
             canvas.save()
             canvas.clipRect(rect)
-            val padding = minOf(2 * resources.displayMetrics.density, rect.width() / 8, rect.height() / 8)
-            val availableWidth = (rect.width() - 2 * padding).toInt().coerceAtLeast(1)
-            val availableHeight = (rect.height() - 2 * padding).coerceAtLeast(0f)
-            val minimum = minimumFontPx
-            fun layout(size: Float, maxLines: Int = Int.MAX_VALUE, ellipsize: Boolean = false): StaticLayout {
-                textPaint.textSize = size
-                return StaticLayout.Builder.obtain(translated, 0, translated.length, textPaint, availableWidth)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false)
-                    .setBreakStrategy(LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
-                    .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
-                    .setMaxLines(maxLines)
-                    .apply { if (ellipsize) setEllipsize(TextUtils.TruncateAt.END) }
-                    .build()
-            }
-            var best = layout(minimum)
-            var size = minimum
-            var abbreviated = best.height > availableHeight
-            if (!abbreviated) {
-                var low = minimum
-                var high = max(minimum, minOf(availableHeight,
-                    TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 26f, resources.displayMetrics)))
-                repeat(7) {
-                    val candidateSize = (low + high) / 2
-                    val candidate = layout(candidateSize)
-                    if (candidate.height <= availableHeight) { low = candidateSize; size = candidateSize }
-                    else high = candidateSize
-                }
-                best = layout(size)
-            } else {
-                // Tiny boxes use a visible marker; the full translation remains available via touch/accessibility.
-                val lines = (0 until best.lineCount).count { best.getLineBottom(it) <= availableHeight }
-                if (lines == 0) {
-                    textPaint.textSize = minimum
-                    textPaint.color = Color.rgb(103, 80, 164)
-                    canvas.drawCircle(rect.centerX(), rect.centerY(), minOf(rect.width(), rect.height()) / 3, textPaint)
-                    textPaint.color = Color.rgb(22, 22, 25)
-                    laidOut += OverlayPlacement(block.id, bounds, minimum, true)
-                    canvas.restore()
-                    return@forEach
-                }
-                best = layout(minimum, lines, true)
-            }
-            textPaint.textSize = size
             canvas.translate(rect.left + padding, rect.top + padding)
-            best.draw(canvas)
+            item.layout.draw(canvas)
             canvas.restore()
-            laidOut += OverlayPlacement(block.id, bounds, size, abbreviated)
+            laidOut += OverlayPlacement(blocks[index].id, bounds, item.fontSize * transform.scale, item.abbreviated)
         }
         canvas.restore()
         val changed = hitRects != hitAreas
@@ -203,11 +244,15 @@ class PhotoOverlayView(context: Context) : View(context) {
         if (changed) accessibility.invalidateRoot()
     }
 
-    private fun hitIndex(x: Float, y: Float): Int = hitRects.indices.filter { hitRects[it].contains(x, y) }
+    private fun hitIndex(x: Float, y: Float): Int {
+        placements.firstOrNull { x >= it.bounds.left && x <= it.bounds.right && y >= it.bounds.top && y <= it.bounds.bottom }
+            ?.let { placement -> return blocks.indexOfFirst { it.id == placement.blockId } }
+        return hitRects.indices.filter { hitRects[it].contains(x, y) }
         .minByOrNull { index ->
             val rect = hitRects[index]
             (rect.centerX() - x) * (rect.centerX() - x) + (rect.centerY() - y) * (rect.centerY() - y)
         } ?: -1
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (bitmap == null) return false

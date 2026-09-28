@@ -89,7 +89,7 @@ class PhotoDeviceTest {
         val values = listOf(PhotoTextBlock("edge", "source", TextBounds(-10f, 0f, 400f, 70f)),
             PhotoTextBlock("tiny", "source", TextBounds(970f, 680f, 1010f, 710f)),
             PhotoTextBlock("large", "source", TextBounds(40f, 100f, 920f, 620f)))
-        val fullText = "这是一段非常长的机械工程译文，型号 M25，扭矩 25 N·m。".repeat(50)
+        val fullText = "这是一段非常长的机械工程译文，型号 M25，扭矩 25 N·m。".repeat(500)
         instrumentation.runOnMainSync {
             for (scale in listOf(1f, 1.8f)) for ((width, height) in listOf(400 to 700, 700 to 400)) {
                 val configured = context.createConfigurationContext(Configuration(context.resources.configuration).apply { fontScale = scale })
@@ -101,7 +101,7 @@ class PhotoDeviceTest {
                 view.draw(Canvas(rendered))
                 assertEquals(3, view.placements.size)
                 assertTrue(view.placements.all { it.bounds.left >= 0 && it.bounds.top >= 0 && it.bounds.right <= width && it.bounds.bottom <= height })
-                assertTrue(view.placements.all { it.fontSizePx >= view.minimumFontPx })
+                assertTrue(view.placements.all { it.fontSizePx > 0f })
                 assertTrue(view.placements.all { it.abbreviated })
                 val area = view.placements.first().bounds
                 val event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_UP, (area.left + area.right) / 2, (area.top + area.bottom) / 2, 0)
@@ -113,7 +113,7 @@ class PhotoDeviceTest {
         photo.recycle()
     }
 
-    @Test fun pinchZoomMakesSmallTranslationReadable() {
+    @Test fun smallTranslationIsCompleteAndPinchScalesTheSameText() {
         instrumentation.runOnMainSync {
             val photo = Bitmap.createBitmap(1000, 700, Bitmap.Config.ARGB_8888)
             val view = PhotoOverlayView(context)
@@ -121,7 +121,8 @@ class PhotoDeviceTest {
             view.layout(0, 0, 1000, 700)
             val output = Bitmap.createBitmap(1000, 700, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(output))
-            assertTrue(view.placements.single().abbreviated)
+            assertFalse(view.placements.single().abbreviated)
+            val initialSize = view.placements.single().fontSizePx
             val down = android.os.SystemClock.uptimeMillis()
             fun touch(action: Int, count: Int, left: Float, right: Float, elapsed: Long) {
                 val properties = Array(count) { i -> MotionEvent.PointerProperties().apply { id = i; toolType = MotionEvent.TOOL_TYPE_FINGER } }
@@ -140,7 +141,7 @@ class PhotoDeviceTest {
             }
             view.draw(Canvas(output))
             assertFalse(view.placements.single().toString(), view.placements.single().abbreviated)
-            assertTrue(view.placements.single().fontSizePx >= view.minimumFontPx)
+            assertTrue(view.placements.single().fontSizePx > initialSize * 2)
             output.recycle(); photo.recycle()
         }
     }
