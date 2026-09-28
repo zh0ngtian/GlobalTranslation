@@ -1,0 +1,82 @@
+package com.example.globaltranslation
+
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.globaltranslation.core.model.*
+import com.example.globaltranslation.core.provider.*
+import com.example.globaltranslation.ui.camera.*
+import com.example.globaltranslation.ui.theme.GlobalTranslationTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class PhotoUiTest {
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    private class Prefs : TranslationPreferences {
+        override val settings = MutableStateFlow(TranslationSettings())
+        override suspend fun update(transform: (TranslationSettings) -> TranslationSettings) { settings.value = transform(settings.value) }
+    }
+    private class Keys : ApiKeyRepository {
+        private var key = ""
+        override val status = MutableStateFlow(ApiKeyStatus())
+        override suspend fun read() = key
+        override suspend fun save(value: String) { key = value; status.value = ApiKeyStatus(true, 1) }
+        override suspend fun clear() { key = ""; status.value = ApiKeyStatus(false, 2) }
+    }
+    @Test fun templatesLanguagesKeyAndPhotoSurviveSettingsNavigation() {
+        val prefs = Prefs()
+        val keys = Keys()
+        val vm = CameraViewModel(object : PhotoTextRecognizer {
+            override suspend fun recognize(image: Any, script: TextScript) = listOf(PhotoTextBlock("one", "Torque 25 N·m", TextBounds(10f, 10f, 390f, 190f)))
+        }, object : PhotoTranslator {
+            override suspend fun translate(blocks: List<PhotoTextBlock>, options: TranslationOptions, apiKey: String) = TranslationResult(mapOf("one" to if (options.target.code == "it") "Coppia 25 N·m" else "扭矩25 N·m"))
+        }, prefs, keys)
+        compose.setContent { GlobalTranslationTheme { PhotoTranslationApp(vm) } }
+        compose.onNodeWithContentDescription("设置").performClick()
+        compose.onNodeWithTag("key_input").performTextInput("test-only")
+        compose.onNodeWithTag("save_key").performClick()
+        compose.onNodeWithTag("add_template").performScrollTo().performClick()
+        compose.onNodeWithTag("template_name").performTextInput("机械工程")
+        compose.onNodeWithTag("template_body").performTextInput("保留单位和型号")
+        compose.onNodeWithTag("save_template").performClick()
+        compose.onNodeWithContentDescription("返回相机").performClick()
+        compose.onNodeWithTag("prompt_selector").performClick()
+        compose.onNodeWithText("机械工程").performClick()
+        compose.onNodeWithTag("script_selector").performClick()
+        compose.onAllNodesWithText("日文").onFirst().performClick()
+        compose.onNodeWithTag("target_selector").performClick()
+        compose.onNodeWithText("意大利语").performClick()
+        compose.runOnIdle {
+            assertEquals(TextScript.JAPANESE, prefs.settings.value.script)
+            assertEquals("it", prefs.settings.value.targetLanguage)
+            assertEquals("保留单位和型号", prefs.settings.value.options.additionalRequirements)
+            vm.selectScript(TextScript.LATIN)
+            vm.captured(vm.beginCapture()!!, Bitmap.createBitmap(400, 200, Bitmap.Config.ARGB_8888))
+        }
+        compose.onNodeWithTag("photo_overlay").assertExists()
+        val proof = compose.onRoot().captureToImage().asAndroidBitmap()
+        File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "translation-ui.png").outputStream().use { proof.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        compose.onNodeWithTag("photo_overlay").performClick()
+        compose.onNodeWithText("完整译文").assertExists()
+        compose.onNodeWithText("Coppia 25 N·m").assertExists()
+        compose.onNodeWithText("关闭").performClick()
+        compose.onNodeWithContentDescription("设置").performClick()
+        compose.onNodeWithText("删除").performScrollTo().performClick()
+        compose.onNode(hasText("删除") and hasAnyAncestor(isDialog())).performClick()
+        compose.onNodeWithContentDescription("返回相机").performClick()
+        compose.onNodeWithTag("photo_overlay").assertExists()
+        compose.onNodeWithText("翻译要求：仅基础翻译").assertExists()
+        compose.onNodeWithText("尚未应用更改，请点击下方按钮。").assertExists()
+        compose.onNodeWithTag("retranslate").performClick()
+        compose.runOnIdle { assertFalse(vm.uiState.value.isResultStale); vm.resetPhoto() }
+    }
+}

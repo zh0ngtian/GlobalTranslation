@@ -1,0 +1,12 @@
+English/short: blocks=1, normalizedCharacterError=0.0
+English/long: blocks=7, normalizedCharacterError=0.0
+English/dense: blocks=5, normalizedCharacterError=0.0
+Japanese/short: blocks=1, normalizedCharacterError=0.0
+Japanese/long: blocks=3, normalizedCharacterError=0.0
+Japanese/dense: blocks=2, normalizedCharacterError=0.00510204081632653
+French/short: blocks=1, normalizedCharacterError=0.0
+French/long: blocks=4, normalizedCharacterError=0.0
+French/dense: blocks=5, normalizedCharacterError=0.0
+Italian/short: blocks=1, normalizedCharacterError=0.0
+Italian/long: blocks=6, normalizedCharacterError=0.0
+Italian/dense: blocks=6, normalizedCharacterError=0.0

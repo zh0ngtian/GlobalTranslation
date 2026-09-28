@@ -1,0 +1,196 @@
+English/short: 1120 ms
+OCR: Tighten the bolt to 25 Nm.
+Chinese: 将螺栓拧紧至25 Nm。
+
+English/long: 1207 ms
+OCR: Tighten the bolt to 25 Nm. | Disconnect the power before maintenance. | Check the pressure: 12 bar. NASA OK. | Tighten the bolt to 25 N-m. | Disconnect the power before maintenance.
+Check the pressure: 12 bar. NASA OK. | Tighten the bolt to 25 N-m. | Disconnect the power before maintenance. | Check the pressure: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+
+English/dense: 1050 ms
+OCR: Tighten the bolt to 25 Nm. | Disconnect the power before maintenance.
+Check the pressure: 12 bar. NASA OK.
+Tighten the bolt to 25 N-m. | Disconnect the power before maintenance.
+Check the pressure: 12 bar. NASA OK.
+Tighten the bolt to 25 Nm. | Disconnect the power before maintenance.
+Check the pressure: 12 bar. NASA OK.
+Tighten the bolt to 25 Nm. | Disconnect the power before maintenance.
+Check the pressure: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至 25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+
+English/domain-conflict: 995 ms
+OCR: Tighten the bolt to 25 Nm. | Disconnect the power before maintenance. | Check the pressure: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+
+Selected target Italian: Serrare il bullone a 25 Nm. Scollegare l'alimentazione prima della manutenzione. Controllare la pressione: 12 bar. NASA OK.
+
+Japanese/short: 830 ms
+OCR: ボルトを25 N.mで締め付けてください。
+Chinese: 请用25 N·m拧紧螺栓。
+
+Japanese/long: 1369 ms
+OCR: ボルトを25Nmで締め付けてください。 | 保守の前に電源を切ってください。
+圧力を確認してください: 12bar。
+ボルトを25Nmで締め付けてください。
+保守の前に電源を切ってください。
+圧力を確認してください: 12bar。 | ボルトを25N-mで締め付けてください。
+保守の前に電源を切ってください。
+圧力を確認してください:12bar。
+Chinese: 请将螺栓拧紧至25Nm。
+维护前请切断电源。
+请检查压力：12bar。
+请将螺栓拧紧至25Nm。
+维护前请切断电源。
+请检查压力：12bar。
+请将螺栓拧紧至25N-m。
+维护前请切断电源。
+请检查压力：12bar。
+
+Japanese/dense: 1285 ms
+OCR: ボルトを25N-mで締め付けてください。
+保守の前に電源を切ってください。
+圧力を確認してください: 12bar。
+ボルトを25N-mで締め付けてください。
+保守の前に電源を切ってください。
+圧力を確認してください: 12baro
+ボルトを25N.mで締め付けてください。
+保守の前に電源を切ってください。 | 圧力を確認してください:12bar。
+ボルトを25N-mで締め付けてください。
+保守の前に電源を切ってください。
+圧力を確認してください: 12bar。
+Chinese: 请将螺栓拧紧至25N-m。
+维护前请切断电源。
+请检查压力：12bar。
+请将螺栓拧紧至25N-m。
+维护前请切断电源。
+请检查压力：12baro
+请将螺栓拧紧至25N.m。
+维护前请切断电源。
+请检查压力：12bar。
+请将螺栓拧紧至25N-m。
+维护前请切断电源。
+请检查压力：12bar。
+
+Japanese/domain-conflict: 912 ms
+OCR: ボルトを25Nmで締め付けてください。 | 保守の前に電源を切ってください。
+圧力を確認してください: 12bar。
+Chinese: 请用25Nm的扭矩拧紧螺栓。
+维护前请切断电源。
+请确认压力：12bar。
+
+French/short: 817 ms
+OCR: Serrez le boulonà 25 Nm.
+Chinese: 将螺栓拧紧至 25 Nm。
+
+French/long: 1162 ms
+OCR: Serrez le boulonà 25 Nm. | Coupez le courant avant la maintenance.
+Vérifiez la pression: 12 bar. NASA OK.
+Serrez le boulon à 25 N-m. | Coupez le courant avant la maintenance.
+Vérifiez la pression: 12 bar. NASA OK.
+Serrez le boulon à 25 Nm. | Coupez le courant avant la maintenance.
+Vérifiez la pression:12 bar. NASA OK.
+Chinese: 将螺栓拧紧至 25 Nm。
+维护前请切断电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 N-m。
+维护前请切断电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 Nm。
+维护前请切断电源。
+检查压力：12 bar。NASA OK。
+
+French/dense: 977 ms
+OCR: Serrez le boulon à 25 N-m. | Coupez le courant avant la maintenance.
+Vérifiez la pression: 12 bar. NASA OK.
+Serrez le boulon à 25 N-m. | Coupez le courant avant la maintenance.
+Vérifiez la pression: 12 bar. NASA OK.
+Serrez le boulon à 25 Nm. | Coupez le courant avant la maintenance.
+Vérifiez la pression: 12 bar. NASA OK.
+Serrez le boulon à 25 N-m. | Coupez le courant avant la maintenance.
+Vérifiez la pression:12 bar. NASA OK.
+Chinese: 将螺栓拧紧至25 N-m。
+维护前切断电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 N-m。
+维护前切断电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 Nm。
+维护前切断电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 N-m。
+维护前切断电源。
+检查压力：12 bar。NASA OK。
+
+French/domain-conflict: 733 ms
+OCR: Serrez le boulon à 25 Nm. | Coupez le courant avant la maintenance.
+Vérifiez la pression: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至 25 Nm。
+维护前切断电源。
+检查压力：12 bar。NASA OK。
+
+Italian/short: 781 ms
+OCR: Serrare il bullone a 25 Nm.
+Chinese: 将螺栓拧紧至25 Nm。
+
+Italian/long: 1039 ms
+OCR: Serrare il bullone a 25 N-m. | Scollegare la corrente prima della manutenzione.
+Controllare la pressione: 12 bar. NASA OK. | Serrare il bullone a 25 Nm. | Scollegare la corrente prima dela manutenzione.
+Controllare la pressione: 12 bar. NASA OK. | Serrare il bullone a 25 Nm. | Scollegare la corrente prima della manutenzione.
+Controllare la pressione: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+
+Italian/dense: 1223 ms
+OCR: Serrare il bullone a 25 N-m. | Scollegare la corrente prima della manutenzione.
+Controllare la pressione: 12 bar. NASA OK.
+Serrare il bullone a 25 N-m. | Scollegare la corrente prima della manutenzione.
+Controllare la pressione: 12 bar. NASA OK.
+Serrare il bullone a 25 Nm. | Scollegare la corrente prima della manutenzione.
+Controllare la pressione: 12 bar. NASA OK. | Serrare il bullone a 25 Nm. | Scollegare la corrente prima della manutenzione.
+Controllare la pressione: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至 25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+将螺栓拧紧至 25 Nm。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。
+
+Italian/domain-conflict: 842 ms
+OCR: Serrare il bullone a 25 N-m. | Scollegare la corrente prima della manutenzione. | Controllare la pressione: 12 bar. NASA OK.
+Chinese: 将螺栓拧紧至 25 N-m。
+维护前请断开电源。
+检查压力：12 bar。NASA OK。

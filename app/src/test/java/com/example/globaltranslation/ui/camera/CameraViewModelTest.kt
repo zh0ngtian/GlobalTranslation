@@ -1,291 +1,116 @@
 package com.example.globaltranslation.ui.camera
 
+import android.graphics.Bitmap
+import com.example.globaltranslation.core.model.*
+import com.example.globaltranslation.core.provider.*
 import com.example.globaltranslation.testing.MainDispatcherRule
-import com.example.globaltranslation.testing.fakes.FakeCameraTranslationProvider
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.vision.common.InputImage
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.*
+import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.Mockito.mock
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class CameraViewModelTest {
-    
-    @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
-    
-    private fun buildVm(
-        cameraProvider: FakeCameraTranslationProvider = FakeCameraTranslationProvider()
-    ): Pair<CameraViewModel, FakeCameraTranslationProvider> {
-        val vm = CameraViewModel(cameraProvider)
-        return Pair(vm, cameraProvider)
+    @get:Rule val main = MainDispatcherRule()
+    private val blocks = listOf(PhotoTextBlock("one", "NASA 25 N·m", TextBounds(0f, 0f, 100f, 40f)),
+        PhotoTextBlock("two", "OK", TextBounds(0f, 50f, 100f, 90f)))
+    private class Prefs : TranslationPreferences {
+        override val settings = MutableStateFlow(TranslationSettings())
+        override suspend fun update(transform: (TranslationSettings) -> TranslationSettings) { settings.value = transform(settings.value) }
     }
-    
-    // Create a mock InputImage for testing using Mockito
-    // FakeCameraTranslationProvider doesn't actually use the InputImage parameter
-    private fun getFakeInputImage(): InputImage = mock(InputImage::class.java)
-    
-    @Test
-    fun `initial state has default values`() = runTest {
-        val (vm, _) = buildVm()
-        val state = vm.uiState.value
-        
-        assertEquals(TranslateLanguage.ENGLISH, state.sourceLanguageCode)
-        assertEquals(TranslateLanguage.SPANISH, state.targetLanguageCode)
-        assertTrue(state.detectedTextBlocks.isEmpty())
-        assertFalse(state.isProcessing)
-        assertFalse(state.isFrozen)
-        assertFalse(state.isFlashOn)
-        assertNull(state.error)
+    private class Keys(var key: String = "test-only") : ApiKeyRepository {
+        override val status = MutableStateFlow(ApiKeyStatus(key.isNotBlank(), 0))
+        override suspend fun read() = key
+        override suspend fun save(value: String) { key = value; status.value = ApiKeyStatus(true, 1) }
+        override suspend fun clear() { key = ""; status.value = ApiKeyStatus(false, 2) }
     }
-    
-    @Test
-    fun `setSourceLanguage updates source language`() = runTest {
-        val (vm, _) = buildVm()
-        
-        vm.setSourceLanguage(TranslateLanguage.FRENCH)
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertEquals(TranslateLanguage.FRENCH, state.sourceLanguageCode)
+    private inner class Harness(key: String = "test-only") {
+        val prefs = Prefs()
+        val keys = Keys(key)
+        val scripts = mutableListOf<TextScript>()
+        val calls = mutableListOf<Pair<List<PhotoTextBlock>, TranslationOptions>>()
+        var recognized = blocks
+        var action: suspend (List<PhotoTextBlock>) -> TranslationResult = { TranslationResult(it.associate { b -> b.id to "译文" }) }
+        val vm = CameraViewModel(object : PhotoTextRecognizer {
+            override suspend fun recognize(image: Any, script: TextScript): List<PhotoTextBlock> { scripts += script; return recognized }
+        }, object : PhotoTranslator {
+            override suspend fun translate(blocks: List<PhotoTextBlock>, options: TranslationOptions, apiKey: String): TranslationResult {
+                calls += blocks to options; return action(blocks)
+            }
+        }, prefs, keys)
+        fun capture() { vm.captured(vm.beginCapture()!!, mock(Bitmap::class.java)) }
     }
-    
-    @Test
-    fun `setSourceLanguage enforces English requirement when both non-English`() = runTest {
-        val (vm, _) = buildVm()
-        
-        // Set target to French first
-        vm.setTargetLanguage(TranslateLanguage.FRENCH)
-        advanceUntilIdle()
-        
-        // Now try to set source to Spanish (both would be non-English)
-        vm.setSourceLanguage(TranslateLanguage.SPANISH)
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertEquals(TranslateLanguage.SPANISH, state.sourceLanguageCode)
-        assertEquals(TranslateLanguage.ENGLISH, state.targetLanguageCode) // Reset to English
+
+    @Test fun captureTranslatesAndChangesWaitForExplicitAction() = runTest {
+        val h = Harness(); h.capture()
+        assertEquals(2, h.vm.uiState.value.translations.size)
+        h.vm.selectTarget("it")
+        assertTrue(h.vm.uiState.value.isResultStale)
+        assertEquals(1, h.calls.size)
+        h.vm.translate()
+        assertEquals(1, h.scripts.size)
+        assertEquals("it", h.calls.last().second.target.code)
+        h.vm.selectScript(TextScript.JAPANESE)
+        assertTrue(h.vm.uiState.value.needsRecognition)
+        assertEquals(2, h.calls.size)
+        h.vm.translate()
+        assertEquals(listOf(TextScript.LATIN, TextScript.JAPANESE), h.scripts)
+        assertFalse(h.vm.uiState.value.isResultStale)
     }
-    
-    @Test
-    fun `setTargetLanguage updates target language`() = runTest {
-        val (vm, _) = buildVm()
-        
-        vm.setTargetLanguage(TranslateLanguage.GERMAN)
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertEquals(TranslateLanguage.GERMAN, state.targetLanguageCode)
+
+    @Test fun partialRetryOnlySendsUnfinishedBlocks() = runTest {
+        val h = Harness(); h.action = { TranslationResult(mapOf("one" to "第一段"), "限流") }; h.capture()
+        assertEquals(1, h.vm.uiState.value.translations.size)
+        h.action = { TranslationResult(it.associate { b -> b.id to "第二段" }) }; h.vm.translate()
+        assertEquals(listOf("two"), h.calls.last().first.map { it.id })
+        assertEquals(mapOf("one" to "第一段", "two" to "第二段"), h.vm.uiState.value.translations)
+        assertNull(h.vm.uiState.value.error)
     }
-    
-    @Test
-    fun `setTargetLanguage enforces English requirement when both non-English`() = runTest {
-        val (vm, _) = buildVm()
-        
-        // Set source to French first
-        vm.setSourceLanguage(TranslateLanguage.FRENCH)
-        advanceUntilIdle()
-        
-        // Now try to set target to Spanish (both would be non-English)
-        vm.setTargetLanguage(TranslateLanguage.SPANISH)
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertEquals(TranslateLanguage.ENGLISH, state.sourceLanguageCode) // Reset to English
-        assertEquals(TranslateLanguage.SPANISH, state.targetLanguageCode)
+
+    @Test fun missingKeyAndEmptyOcrNeverCallApi() = runTest {
+        val noKey = Harness(""); noKey.capture()
+        assertTrue(noKey.calls.isEmpty()); assertTrue(noKey.vm.uiState.value.error!!.contains("Key"))
+        val empty = Harness(); empty.recognized = emptyList(); empty.capture()
+        assertTrue(empty.calls.isEmpty()); assertTrue(empty.vm.uiState.value.error!!.contains("未识别"))
+        assertFalse(empty.vm.uiState.value.isBusy)
     }
-    
-    @Test
-    fun `swapLanguages swaps source and target`() = runTest {
-        val (vm, _) = buildVm()
-        
-        vm.setSourceLanguage(TranslateLanguage.ENGLISH)
-        vm.setTargetLanguage(TranslateLanguage.GERMAN)
-        advanceUntilIdle()
-        
-        vm.swapLanguages()
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertEquals(TranslateLanguage.GERMAN, state.sourceLanguageCode)
-        assertEquals(TranslateLanguage.ENGLISH, state.targetLanguageCode)
+
+    @Test fun cancellationAndDuplicateClicksDoNotPublishLateResults() = runTest {
+        val h = Harness()
+        val release = CompletableDeferred<Unit>()
+        h.action = { withContext(NonCancellable) { release.await() }; TranslationResult(mapOf("one" to "旧译文")) }
+        h.capture(); h.vm.translate()
+        assertNull(h.vm.beginCapture())
+        assertEquals(1, h.calls.size)
+        h.vm.resetPhoto(); release.complete(Unit); runCurrent()
+        assertNull(h.vm.uiState.value.photo)
+        assertTrue(h.vm.uiState.value.translations.isEmpty())
+        assertFalse(h.vm.uiState.value.isBusy)
     }
-    
-    @Test
-    fun `toggleFlash toggles flash state`() = runTest {
-        val (vm, _) = buildVm()
-        
-        assertFalse(vm.uiState.value.isFlashOn)
-        
-        vm.toggleFlash()
-        advanceUntilIdle()
-        assertTrue(vm.uiState.value.isFlashOn)
-        
-        vm.toggleFlash()
-        advanceUntilIdle()
-        assertFalse(vm.uiState.value.isFlashOn)
+
+    @Test fun timeoutRetainsOcrForRetry() = runTest {
+        val h = Harness(); h.action = { delay(70_000); TranslationResult(emptyMap()) }; h.capture()
+        advanceTimeBy(60_001); runCurrent()
+        assertTrue(h.vm.uiState.value.error!!.contains("超时"))
+        assertEquals(blocks, h.vm.uiState.value.blocks)
+        assertFalse(h.vm.uiState.value.isBusy)
     }
-    
-    @Test
-    fun `processCapturedImage success updates state with results`() = runTest {
-        val (vm, provider) = buildVm()
-        provider.shouldSucceed = true
-        provider.shouldDetectText = true
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertFalse(state.isProcessing)
-        assertTrue(state.isFrozen)
-        assertTrue(state.detectedTextBlocks.isNotEmpty())
-        assertEquals("Translated: Test text", state.detectedTextBlocks.first().translatedText)
-        assertNull(state.error)
-    }
-    
-    @Test
-    fun `processCapturedImage no text detected shows error`() = runTest {
-        val (vm, provider) = buildVm()
-        provider.shouldSucceed = true
-        provider.shouldDetectText = false
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertFalse(state.isProcessing)
-        assertTrue(state.detectedTextBlocks.isEmpty())
-        assertNotNull(state.error)
-        assertTrue(state.error?.contains("No text detected") == true)
-    }
-    
-    @Test
-    fun `processCapturedImage failure shows error`() = runTest {
-        val (vm, provider) = buildVm()
-        provider.shouldSucceed = false
-        provider.errorMessage = "Network error"
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertFalse(state.isProcessing)
-        assertNotNull(state.error)
-        assertTrue(state.error?.contains("Translation failed") == true)
-    }
-    
-    @Test
-    fun `processCapturedImage sets processing and frozen states`() = runTest {
-        val (vm, _) = buildVm()
-        
-        vm.processCapturedImage(getFakeInputImage())
-        // No need to check intermediate state - it's racy
-        // Just verify final state after processing completes
-        
-        advanceUntilIdle()
-        
-        val finalState = vm.uiState.value
-        assertFalse(finalState.isProcessing)
-        assertTrue(finalState.isFrozen)
-    }
-    
-    @Test
-    fun `clearError clears error message`() = runTest {
-        val (vm, provider) = buildVm()
-        provider.shouldSucceed = false
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        assertNotNull(vm.uiState.value.error)
-        
-        vm.clearError()
-        advanceUntilIdle()
-        
-        assertNull(vm.uiState.value.error)
-    }
-    
-    @Test
-    fun `clearResults clears detection results and unfreezes`() = runTest {
-        val (vm, provider) = buildVm()
-        provider.shouldSucceed = true
-        provider.shouldDetectText = true
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        assertTrue(vm.uiState.value.detectedTextBlocks.isNotEmpty())
-        assertTrue(vm.uiState.value.isFrozen)
-        
-        vm.clearResults()
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertTrue(state.detectedTextBlocks.isEmpty())
-        assertFalse(state.isFrozen)
-        assertFalse(state.isProcessing)
-        assertNull(state.error)
-    }
-    
-    @Test
-    fun `reset unfreezes camera and clears translations`() = runTest {
-        val (vm, provider) = buildVm()
-        provider.shouldSucceed = true
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        vm.reset()
-        advanceUntilIdle()
-        
-        val state = vm.uiState.value
-        assertFalse(state.isFrozen)
-        assertTrue(state.detectedTextBlocks.isEmpty())
-        assertNull(state.error)
-    }
-    
-    @Test
-    fun `CameraUiState validates language pairs correctly`() {
-        val validPair1 = CameraUiState(
-            sourceLanguageCode = TranslateLanguage.ENGLISH,
-            targetLanguageCode = TranslateLanguage.SPANISH
-        )
-        assertTrue(validPair1.isValidLanguagePair())
-        
-        val validPair2 = CameraUiState(
-            sourceLanguageCode = TranslateLanguage.FRENCH,
-            targetLanguageCode = TranslateLanguage.ENGLISH
-        )
-        assertTrue(validPair2.isValidLanguagePair())
-        
-        val invalidPair = CameraUiState(
-            sourceLanguageCode = TranslateLanguage.FRENCH,
-            targetLanguageCode = TranslateLanguage.SPANISH
-        )
-        assertFalse(invalidPair.isValidLanguagePair())
-    }
-    
-    @Test
-    fun `processCapturedImage uses correct language codes`() = runTest {
-        val (vm, provider) = buildVm()
-        
-        vm.setSourceLanguage(TranslateLanguage.FRENCH)
-        vm.setTargetLanguage(TranslateLanguage.ENGLISH)
-        advanceUntilIdle()
-        
-        vm.processCapturedImage(getFakeInputImage())
-        advanceUntilIdle()
-        
-        assertEquals(TranslateLanguage.FRENCH, provider.lastSourceLanguage)
-        assertEquals(TranslateLanguage.ENGLISH, provider.lastTargetLanguage)
+
+    @Test fun deletingSelectedTemplateFallsBackAndOldCaptureIsIgnored() = runTest {
+        val h = Harness()
+        h.vm.saveTemplate(null, "机械", "Use mechanical terminology")
+        val id = h.prefs.settings.value.templates.single().id
+        h.vm.selectTemplate(id); h.capture()
+        assertEquals("Use mechanical terminology", h.calls.single().second.additionalRequirements)
+        h.vm.deleteTemplate(id)
+        assertNull(h.prefs.settings.value.selectedTemplateId)
+        assertTrue(h.vm.uiState.value.isResultStale)
+        h.vm.resetPhoto()
+        val token = h.vm.beginCapture()!!; h.vm.cancel()
+        h.vm.captured(token, mock(Bitmap::class.java))
+        assertNull(h.vm.uiState.value.photo)
     }
 }

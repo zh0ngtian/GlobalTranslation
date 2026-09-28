@@ -1,0 +1,9 @@
+2026-09-29
+JDK 21 / Gradle 8.13 / SDK 36
+core: 4 unit tests passed
+data: 7 unit tests passed
+app: 6 unit tests passed
+app:lintDebug: passed (warnings retained)
+app:assembleDebug: passed
+app:assembleRelease: passed (unsigned)
+app:assembleDebugAndroidTest: passed

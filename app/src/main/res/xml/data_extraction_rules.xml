@@ -1,30 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-   Data extraction rules for Android 12+ (API 31+)
-   See https://developer.android.com/about/versions/12/backup-restore
--->
 <data-extraction-rules>
     <cloud-backup disableIfNoEncryptionCapabilities="true">
-        <!-- Include user preferences (DataStore) -->
-        <include domain="sharedpref" path="app_preferences.preferences_pb"/>
-
-        <!-- Include Room database for conversation history -->
-        <include domain="database" path="conversation_database"/>
-
-        <!--
-             Note: By only including specific paths, everything else is excluded by default.
-             ML Kit models and cache are not backed up because we don't include the file domain.
-        -->
+        <include domain="file" path="datastore/photo_translation.preferences_pb" />
     </cloud-backup>
-
     <device-transfer>
-        <!-- Transfer user data during device-to-device transfer -->
-        <include domain="sharedpref" path="app_preferences.preferences_pb"/>
-        <include domain="database" path="conversation_database"/>
-
-        <!--
-             Note: Only specified includes are transferred.
-             ML Kit models are excluded by default since file domain is not included.
-        -->
+        <include domain="file" path="datastore/photo_translation.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>

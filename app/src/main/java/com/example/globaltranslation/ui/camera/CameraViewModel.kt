@@ -1,214 +1,208 @@
 package com.example.globaltranslation.ui.camera
 
-import android.graphics.Rect as AndroidRect
-import androidx.compose.ui.geometry.Rect
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.globaltranslation.core.provider.CameraTranslationProvider
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.vision.common.InputImage
+import com.example.globaltranslation.core.model.*
+import com.example.globaltranslation.core.provider.*
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.*
+import java.util.UUID
 import javax.inject.Inject
 
-/**
- * ViewModel for camera translation screen.
- * Manages camera state, text recognition, and translation.
- * Migrated to use :data providers for clean architecture.
- */
+enum class ProcessingStage(val label: String) {
+    IDLE(""), CAPTURING("正在拍照…"), RECOGNIZING("正在识别文字…"), TRANSLATING("正在翻译…")
+}
+
+data class CameraUiState(
+    val settings: TranslationSettings = TranslationSettings(),
+    val settingsLoaded: Boolean = false,
+    val hasApiKey: Boolean = false,
+    val photo: Bitmap? = null,
+    val blocks: List<PhotoTextBlock> = emptyList(),
+    val ocrScript: TextScript? = null,
+    val translations: Map<String, String> = emptyMap(),
+    val resultOptions: TranslationOptions? = null,
+    val stage: ProcessingStage = ProcessingStage.IDLE,
+    val error: String? = null,
+    val notice: String? = null
+) {
+    val isBusy get() = stage != ProcessingStage.IDLE
+    val needsRecognition get() = ocrScript != settings.script || blocks.isEmpty()
+    val isResultStale get() = photo != null && blocks.isNotEmpty() &&
+        (ocrScript != settings.script || (resultOptions != null && resultOptions != settings.options))
+}
+
 @HiltViewModel
 class CameraViewModel @Inject constructor(
-    private val cameraTranslationProvider: CameraTranslationProvider
+    private val recognizer: PhotoTextRecognizer,
+    private val translator: PhotoTranslator,
+    private val preferences: TranslationPreferences,
+    private val keys: ApiKeyRepository
 ) : ViewModel() {
+    private val mutableState = MutableStateFlow(CameraUiState())
+    val uiState = mutableState.asStateFlow()
+    private var generation = 0L
+    private var operation: Job? = null
 
-    private val _uiState = MutableStateFlow(CameraUiState())
-    val uiState: StateFlow<CameraUiState> = _uiState.asStateFlow()
-
-    // No more continuous processing - only on-demand capture
-
-    /**
-     * Sets the source language for translation.
-     * Ensures at least one language is English (ML Kit requirement).
-     */
-    fun setSourceLanguage(languageCode: String) {
-        val currentTarget = _uiState.value.targetLanguageCode
-
-        // If setting source to non-English and target is also non-English, reset target to English
-        if (languageCode != TranslateLanguage.ENGLISH && currentTarget != TranslateLanguage.ENGLISH) {
-            _uiState.value = _uiState.value.copy(
-                sourceLanguageCode = languageCode,
-                targetLanguageCode = TranslateLanguage.ENGLISH
-            )
-        } else {
-            _uiState.value = _uiState.value.copy(sourceLanguageCode = languageCode)
+    init {
+        viewModelScope.launch {
+            preferences.settings.catch {
+                mutableState.update { it.copy(settingsLoaded = true, error = "无法读取设置，请重试。") }
+            }.collect { settings -> mutableState.update { it.copy(settings = settings, settingsLoaded = true) } }
+        }
+        viewModelScope.launch {
+            keys.status.collect { status -> mutableState.update { it.copy(hasApiKey = status.isConfigured) } }
         }
     }
 
-    /**
-     * Sets the target language for translation.
-     * Ensures at least one language is English (ML Kit requirement).
-     */
-    fun setTargetLanguage(languageCode: String) {
-        val currentSource = _uiState.value.sourceLanguageCode
+    fun selectScript(script: TextScript) = editSettings { it.copy(script = script) }
+    fun selectTarget(code: String) = editSettings { it.copy(targetLanguage = TargetLanguages.find(code).code) }
+    fun selectTemplate(id: String?) = editSettings { settings ->
+        settings.copy(selectedTemplateId = id?.takeIf { candidate -> settings.templates.any { it.id == candidate } })
+    }
 
-        // If setting target to non-English and source is also non-English, reset source to English
-        if (languageCode != TranslateLanguage.ENGLISH && currentSource != TranslateLanguage.ENGLISH) {
-            _uiState.value = _uiState.value.copy(
-                sourceLanguageCode = TranslateLanguage.ENGLISH,
-                targetLanguageCode = languageCode
-            )
-        } else {
-            _uiState.value = _uiState.value.copy(targetLanguageCode = languageCode)
+    fun saveTemplate(id: String?, name: String, body: String) {
+        if (name.isBlank() || name.trim().length > 40 || body.length > 8000) {
+            showError("模板名称需为 1–40 字，附加要求最多 8000 字。")
+            return
+        }
+        val template = PromptTemplate(id ?: UUID.randomUUID().toString(), name.trim(), body.trim())
+        editSettings { settings ->
+            settings.copy(templates = settings.templates.filterNot { it.id == template.id } + template)
         }
     }
 
-    /**
-     * Swaps source and target languages.
-     */
-    fun swapLanguages() {
-        val currentState = _uiState.value
-        _uiState.value = currentState.copy(
-            sourceLanguageCode = currentState.targetLanguageCode,
-            targetLanguageCode = currentState.sourceLanguageCode
-        )
+    fun deleteTemplate(id: String) = editSettings {
+        it.copy(templates = it.templates.filterNot { template -> template.id == id },
+            selectedTemplateId = it.selectedTemplateId.takeUnless { selected -> selected == id })
     }
 
-    /**
-     * Toggles flash on/off.
-     */
-    fun toggleFlash() {
-        _uiState.value = _uiState.value.copy(
-            isFlashOn = !_uiState.value.isFlashOn
-        )
+    private fun editSettings(transform: (TranslationSettings) -> TranslationSettings) {
+        viewModelScope.launch {
+            try { preferences.update(transform) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { showError("设置保存失败，请重试。") }
+        }
     }
 
-    /**
-     * Processes a captured image for text recognition and translation.
-     * This is called with an actual captured photo (Google Lens style).
-     */
-    fun processCapturedImage(inputImage: InputImage) {
+    fun saveApiKey(value: String) {
+        cancel()
         viewModelScope.launch {
             try {
-                _uiState.value = _uiState.value.copy(
-                    isProcessing = true,
-                    isFrozen = true,
-                    error = null
-                )
+                keys.save(value)
+                mutableState.update { it.copy(notice = "API Key 已加密保存在本机。", error = null) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: IllegalArgumentException) { showError("请填写有效的 API Key，避免空格或换行。") }
+            catch (_: Exception) { showError("无法安全保存 API Key，请重试。") }
+        }
+    }
 
-                // Process the captured image using provider
-                val result = cameraTranslationProvider.processImage(
-                    imageData = inputImage,
-                    sourceLanguage = _uiState.value.sourceLanguageCode,
-                    targetLanguage = _uiState.value.targetLanguageCode
-                )
+    fun clearApiKey() {
+        cancel()
+        viewModelScope.launch {
+            try {
+                keys.clear()
+                mutableState.update { it.copy(notice = "API Key 已清除。", error = null) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { showError("无法清除 API Key，请重试。") }
+        }
+    }
 
-                result.fold(
-                    onSuccess = { translatedBlocks ->
-                        val detectedBlocks = translatedBlocks.map { block ->
-                            DetectedTextBlock(
-                                originalText = block.originalText,
-                                translatedText = block.translatedText,
-                                boundingBox = Rect(
-                                    block.boundingBox.left.toFloat(),
-                                    block.boundingBox.top.toFloat(),
-                                    block.boundingBox.right.toFloat(),
-                                    block.boundingBox.bottom.toFloat()
-                                )
-                            )
-                        }
+    fun beginCapture(): Long? {
+        if (uiState.value.isBusy || !uiState.value.settingsLoaded) return null
+        cancel()
+        mutableState.update { it.copy(stage = ProcessingStage.CAPTURING, error = null, notice = null) }
+        return generation
+    }
 
-                        if (detectedBlocks.isNotEmpty()) {
-                            _uiState.value = _uiState.value.copy(
-                                detectedTextBlocks = detectedBlocks,
-                                isProcessing = false,
-                                error = null
-                            )
-                        } else {
-                            _uiState.value = _uiState.value.copy(
-                                isProcessing = false,
-                                error = "No text detected. Try again with clearer text."
-                            )
-                        }
-                    },
-                    onFailure = { exception ->
-                        _uiState.value = _uiState.value.copy(
-                            isProcessing = false,
-                            error = "Translation failed: ${exception.message}"
-                        )
-                    }
-                )
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isProcessing = false,
-                    error = "Error: ${e.message}"
-                )
+    fun captured(token: Long, photo: Bitmap) {
+        if (token != generation || uiState.value.stage != ProcessingStage.CAPTURING) return
+        mutableState.update { it.copy(photo = photo, blocks = emptyList(), ocrScript = null,
+            translations = emptyMap(), resultOptions = null, stage = ProcessingStage.IDLE) }
+        translate()
+    }
+
+    fun captureFailed(token: Long) {
+        if (token != generation) return
+        mutableState.update { it.copy(stage = ProcessingStage.IDLE, error = "拍照失败，请重试。") }
+    }
+
+    fun translate() {
+        val initial = uiState.value
+        val photo = initial.photo ?: return
+        if (initial.isBusy) return
+        val script = initial.settings.script
+        val options = initial.settings.options
+        val reuseOcr = initial.ocrScript == script && initial.blocks.isNotEmpty()
+        val reuseTranslations = reuseOcr && initial.error != null && initial.resultOptions == options
+        cancel()
+        val token = generation
+        mutableState.update { it.copy(error = null, notice = null,
+            stage = if (reuseOcr) ProcessingStage.TRANSLATING else ProcessingStage.RECOGNIZING) }
+        operation = viewModelScope.launch {
+            try {
+                val blocks = if (reuseOcr) initial.blocks else recognizer.recognize(photo, script)
+                ensureActive()
+                if (token != generation) return@launch
+                val retained = if (reuseTranslations) initial.translations else emptyMap()
+                mutableState.update { it.copy(blocks = blocks, ocrScript = script,
+                    translations = retained, resultOptions = options) }
+                if (blocks.isEmpty()) {
+                    showError("未识别到文字。请检查文字体系，或对准清晰印刷文字重新拍照。")
+                    return@launch
+                }
+                val key = try { keys.read() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) {
+                    showError("无法读取本机 API Key，请在设置中重新保存。")
+                    return@launch
+                }
+                if (key.isBlank()) {
+                    showError("请先在设置中填写 DeepSeek API Key，然后重新翻译。")
+                    return@launch
+                }
+                mutableState.update { it.copy(stage = ProcessingStage.TRANSLATING) }
+                val pending = blocks.filterNot { it.id in retained }
+                val result = withTimeout(60_000) { translator.translate(pending, options, key) }
+                ensureActive()
+                if (token == generation) {
+                    val validIds = pending.map { it.id }.toSet()
+                    val validResults = result.translations.filter { it.key in validIds && it.value.isNotBlank() }
+                    val combined = retained + validResults
+                    mutableState.update { it.copy(translations = combined,
+                        error = result.error ?: if (combined.size < blocks.size) "部分文字未完成翻译，请重试。" else null) }
+                }
+            } catch (_: TimeoutCancellationException) {
+                if (token == generation) showError("翻译请求超时，请检查网络后重试。")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (token == generation) showError("处理失败，请检查文字体系后重试。")
+            } finally {
+                if (token == generation) mutableState.update { it.copy(stage = ProcessingStage.IDLE) }
             }
         }
     }
 
-    /**
-     * Clears the current error message.
-     */
-    fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+    fun cancel() {
+        generation++
+        operation?.cancel()
+        operation = null
+        mutableState.update { it.copy(stage = ProcessingStage.IDLE) }
     }
 
-    /**
-     * Clears detected text blocks (results) and resumes camera.
-     */
-    fun clearResults() {
-        _uiState.value = _uiState.value.copy(
-            detectedTextBlocks = emptyList(),
-            isFrozen = false,
-            isProcessing = false,
-            error = null
-        )
+    fun resetPhoto() {
+        cancel()
+        mutableState.update { it.copy(photo = null, blocks = emptyList(), ocrScript = null,
+            translations = emptyMap(), resultOptions = null, error = null, notice = null) }
     }
 
-    /**
-     * Resets the camera (unfreezes and clears translations).
-     */
-    fun reset() {
-        _uiState.value = _uiState.value.copy(
-            isFrozen = false,
-            detectedTextBlocks = emptyList(),
-            error = null
-        )
-    }
+    fun showError(message: String) { mutableState.update { it.copy(error = message) } }
+    fun clearMessage() { mutableState.update { it.copy(error = null, notice = null) } }
 }
-
-/**
- * UI state for camera translation screen.
- * Uses string literals for defaults to support Compose previews.
- */
-data class CameraUiState(
-    val sourceLanguageCode: String = "en",  // TranslateLanguage.ENGLISH
-    val targetLanguageCode: String = "es",  // TranslateLanguage.SPANISH
-    val detectedTextBlocks: List<DetectedTextBlock> = emptyList(),
-    val isProcessing: Boolean = false,
-    val isFrozen: Boolean = false,
-    val isFlashOn: Boolean = false,
-    val error: String? = null
-) {
-    /**
-     * Validates that at least one language is English (required for ML Kit).
-     * ML Kit only supports translation pairs with English.
-     */
-    fun isValidLanguagePair(): Boolean {
-        return sourceLanguageCode == "en" ||  // TranslateLanguage.ENGLISH
-                targetLanguageCode == "en"
-    }
-}
-
-/**
- * Represents a detected and translated text block.
- */
-data class DetectedTextBlock(
-    val originalText: String,
-    val translatedText: String?,
-    val boundingBox: Rect
-)
-

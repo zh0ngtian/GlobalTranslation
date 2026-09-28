@@ -1,3 +1,5 @@
+> 上游历史文档，保留用于追溯；不代表当前拍照翻译版本。当前规则与实现见仓库根目录 `AGENTS.md` 和 `README.md`。
+
 # Project Plan: Global Translation App
 
 **App Name:** GlobalTranslation  

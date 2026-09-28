@@ -1,149 +1,30 @@
-# GlobalTranslation Architecture
+# 拍照翻译架构
 
-This document provides a concise, developer-oriented view of the GlobalTranslation app’s multi-module clean architecture
-and the provider pattern used throughout. For ML Kit implementation details, see ML_KIT_ARCHITECTURE.md.
+## 模块
 
-## Module Structure
+| 模块 | 职责 | 主要文件 |
+| --- | --- | --- |
+| `:core` | 文字体系、语言、模板、坐标、服务接口、无损分批 | `PhotoTranslation.kt`、`PhotoServices.kt`、`TranslationBatches.kt`、`PhotoGeometry.kt` |
+| `:data` | ML Kit OCR、DeepSeek HTTP/JSON、DataStore、Keystore | `MlKitPhotoRecognizer.kt`、`DeepSeekTranslator.kt`、`DeepSeekProtocol.kt`、`PhotoPreferences.kt`、`SecureApiKeyStore.kt` |
+| `:app` | 相机、状态编排、Compose 设置、覆盖绘制 | `CameraPreview.kt`、`CameraViewModel.kt`、`PhotoTranslationApp.kt`、`PhotoOverlayView.kt` |
 
-```text
-:core  (Pure Kotlin domain & contracts)
-:data  (Android Library with implementations)
-:app   (Android App – UI only)
-```
+Hilt 在 `PhotoModule` 绑定服务。ViewModel 依赖 core 接口，测试使用可控制的假实现；HTTP 协议通过 MockWebServer 验证。
 
-- :core
-    - Domain models
-    - Provider interfaces (Translation, Text Recognition/OCR, Camera, Speech, TextToSpeech)
-    - Repository interfaces
-- :data
-    - ML Kit and Android implementations of :core interfaces
-    - Hilt modules to bind interfaces to implementations
-    - Room database, DataStore, and platform integrations
-- :app
-    - Jetpack Compose UI + ViewModels
-    - Depends on :core interfaces; implementations provided by :data via Hilt
+## 状态与数据流
 
-## Provider Pattern (Clean Architecture)
+1. CameraX 获取独立 Bitmap，并按拍摄方向旋转，再关闭 ImageProxy。预览结束时解绑相机、关闭补光。
+2. ViewModel 固定当前照片、文字体系和翻译选项。只调用所选体系对应的本地识别器，保留文字块 ID、原文和像素坐标。
+3. DeepSeek 请求只包含文字、临时分片 ID 和翻译要求。每批最多 6000 字符/40 个分片，超长单块无损拆分；全部分片成功才发布该原始块。
+4. 校验响应完成原因、JSON、ID 集合和非空译文。分批失败保留完整成功块，手动重试未完成块。
+5. 覆盖层通过同一个缩放及留白变换绘制照片和文字。StaticLayout 测量换行与字号，12sp 下限，极小区域显示标记；点按和无障碍节点保留全文。
 
-Provider interfaces live in :core and are implemented in :data. ViewModels in :app depend only on the interfaces and are
-injected via Hilt.
+取消操作撤销协程和 HTTP 连接，操作代号阻止迟到结果更新界面。更改目标语言或模板只使结果过期，点击后复用 OCR；更改体系后重新识别。
 
-### Example Interface (in :core)
+## 存储
 
-```kotlin
-interface TranslationProvider {
-    suspend fun translate(text: String, from: String, to: String): Result<String>
-    suspend fun areModelsDownloaded(from: String, to: String): Boolean
-    suspend fun downloadModels(from: String, to: String): Result<Unit>
-    suspend fun deleteModel(languageCode: String): Result<Unit>
-    fun cleanup()
-}
-```
+- DataStore：`photo_translation.preferences_pb`，存语言、文字体系、模板及选中 ID，允许备份。
+- Key：Android Keystore AES/GCM 加密，密文在 `noBackupFilesDir/deepseek-key.enc`，不进入界面状态、日志、备份。
+- 照片和翻译：仅 ViewModel 内存，进设置或配置重建可保留，结束会话或进程退出后消失。
+- 旧版 Room 会话库、语音及本地翻译服务已经退出业务链路；升级不读取旧数据，也不主动删除用户已有文件。
 
-### Hilt Binding (in :data)
-
-```kotlin
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class ProviderModule {
-    @Binds
-    @Singleton
-    abstract fun bindTranslationProvider(impl: MlKitTranslationProvider): TranslationProvider
-}
-```
-
-## Critical Method Distinction: areModelsDownloaded() vs translate()
-
-The TranslationProvider exposes two different flows regarding ML Kit model management that must not be conflated:
-
-1. areModelsDownloaded(from, to): Boolean
-
-    - Purpose: Check model availability without triggering downloads
-    - Behavior: Queries the local RemoteModelManager; no network usage
-    - Use cases: UI readiness checks, enabling a “Download” call-to-action, pre-flight validation
-
-   ```kotlin
-   // Non-destructive status check (no download)
-   val ready = translationProvider.areModelsDownloaded("en", "es")
-   if (!ready) {
-       // Show download button / guidance (WiFi recommended)
-   }
-   ```
-
-2. translate(text, from, to): `Result<String>`
-
-    - Purpose: Perform translation
-    - Behavior: Will auto-download missing models on first use (on WiFi per ML Kit policy)
-    - Use cases: Actual translation when the user expects models to be present
-
-   ```kotlin
-   // May download models automatically if missing (on WiFi)
-   val result = translationProvider.translate("Hello", "en", "es")
-   ```
-
-Why this separation matters:
-
-- Prevents unintended large downloads during simple readiness checks
-- Gives users control (explicit download action) and better UX
-- Keeps code intent clear (checking vs doing)
-
-### Recommended ViewModel Pattern
-
-```kotlin
-@HiltViewModel
-class ConversationViewModel @Inject constructor(
-    private val translationProvider: TranslationProvider,
-    private val repository: ConversationRepository
-) : ViewModel() {
-
-    private val _ui = MutableStateFlow(UiState())
-    val ui: StateFlow<UiState> = _ui.asStateFlow()
-
-    fun checkModels(from: String, to: String) {
-        viewModelScope.launch {
-            val ready = translationProvider.areModelsDownloaded(from, to)
-            _ui.value = _ui.value.copy(modelsReady = ready, showDownloadPrompt = !ready)
-        }
-    }
-
-    fun downloadModels(from: String, to: String) {
-        viewModelScope.launch {
-            translationProvider.downloadModels(from, to)
-                .onSuccess { _ui.value = _ui.value.copy(modelsReady = true, showDownloadPrompt = false) }
-                .onFailure { e -> _ui.value = _ui.value.copy(error = "Download failed: ${e.message}") }
-        }
-    }
-
-    fun translate(text: String, from: String, to: String) {
-        viewModelScope.launch {
-            _ui.value = _ui.value.copy(getTranslating = true)
-            translationProvider.translate(text, from, to)
-                .onSuccess { translated ->
-                    _ui.value = _ui.value.copy(getTranslating = false)
-                    repository.saveConversation(ConversationTurn(text, translated, from, to))
-                }
-                .onFailure { e ->
-                    _ui.value = _ui.value.copy(getTranslating = false, error = e.message)
-                }
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        translationProvider.cleanup()
-    }
-}
-
-data class UiState(
-    val getTranslating: Boolean = false,
-    val error: String? = null,
-    val modelsReady: Boolean = false,
-    val showDownloadPrompt: Boolean = false
-)
-```
-
-## Related Documentation
-
-- ML Kit implementation details and performance characteristics: ML_KIT_ARCHITECTURE.md
-- Build setup, versions, and requirements: docs/README.md
-- Testing strategy and fake providers: see docs/archive/TESTING_IMPROVEMENTS_SUMMARY.md
+需求与参数见 [AGENTS.md](../AGENTS.md) 和[实现说明](planning/CAMERA_TRANSLATION_V1.md)。实测范围见[验收记录](testing/ACCEPTANCE.md)。

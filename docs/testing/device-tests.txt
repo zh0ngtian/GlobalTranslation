@@ -1,0 +1,7 @@
+com.example.globaltranslation.CameraCaptureTest:.
+com.example.globaltranslation.PhotoDeviceTest:......
+com.example.globaltranslation.PhotoUiTest:.
+
+Time: 33.899
+
+OK (8 tests)

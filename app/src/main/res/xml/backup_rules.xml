@@ -1,19 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-   Backup configuration for GlobalTranslation app
-   See https://developer.android.com/guide/topics/data/autobackup
-   Note: This file is ignored for devices older than API 31
--->
 <full-backup-content>
-    <!-- Include user preferences (DataStore) -->
-    <include domain="sharedpref" path="app_preferences.preferences_pb"/>
-
-    <!-- Include Room database for conversation history -->
-    <include domain="database" path="conversation_database"/>
-
-    <!--
-         Note: By default, all other files are NOT backed up unless explicitly included.
-         ML Kit models are stored in app's internal storage and won't be backed up
-         unless we explicitly include the file domain, which we don't.
-    -->
+    <!-- Only non-secret translation preferences. Key ciphertext uses noBackupFilesDir. -->
+    <include domain="file" path="datastore/photo_translation.preferences_pb" />
 </full-backup-content>
