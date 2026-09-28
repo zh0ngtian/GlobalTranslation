@@ -46,7 +46,7 @@ class ExternalPhotoTest {
         input.delete()
         val output = File(context.cacheDir, "external-photo").apply { mkdirs() }
         val preferences = object : TranslationPreferences {
-            override val settings = MutableStateFlow(TranslationSettings(templates = listOf(PromptTemplate("buddhism", "佛教与艺术史", "使用佛教与艺术史通行术语，保留编号、人名和不确定标记；不增补原文内容。"))))
+            override val settings = MutableStateFlow(TranslationSettings(templates = listOf(PromptTemplate("buddhism", "佛教美术", "使用佛教美术术语"))))
             override suspend fun update(transform: (TranslationSettings) -> TranslationSettings) { settings.value = transform(settings.value) }
         }
         val keys = object : ApiKeyRepository {
@@ -125,7 +125,8 @@ class ExternalPhotoTest {
                 File(output, "$mode-overlay.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 bitmap.recycle()
             }
-            results.put(JSONObject().put("mode", mode).put("elapsedMs", System.currentTimeMillis() - started).put("blocks", entries))
+            results.put(JSONObject().put("mode", mode).put("additionalRequirements", state.settings.options.additionalRequirements)
+                .put("elapsedMs", System.currentTimeMillis() - started).put("blocks", entries))
         }
         File(output, if (replay) "layout-result.json" else "result.json").writeText(JSONObject().put("width", photo.width).put("height", photo.height)
             .put("ocrMillis", ocrMillis).put("ocrRuns", ocrCount).put("results", results).toString(2))
@@ -138,16 +139,17 @@ class ExternalPhotoTest {
             return null
         }
         lateinit var overlay: PhotoOverlayView
+        val firstRow = vm.uiState.value.blocks.first { it.text.startsWith("1.") }
         compose.runOnIdle {
             overlay = requireNotNull(findOverlay(compose.activity.window.decorView))
-            val block = vm.uiState.value.blocks.first { it.text.startsWith("1.") }
+            val block = firstRow
             assertTrue("Actual App viewport must show complete translations", overlay.placements.none { it.abbreviated })
             val area = overlay.placements.first { it.blockId == block.id }.bounds
             val event = MotionEvent.obtain(0, 1, MotionEvent.ACTION_UP, (area.left + area.right) / 2, (area.top + area.bottom) / 2, 0)
             overlay.onTouchEvent(event); event.recycle()
         }
         compose.onNodeWithText("完整译文").assertExists()
-        compose.onNodeWithText("1. 弥勒的登位").assertExists()
+        compose.onNodeWithText(requireNotNull(vm.uiState.value.translations[firstRow.id])).assertExists()
         compose.onNode(isDialog()).captureToImage().asAndroidBitmap().let { bitmap ->
             File(output, "buddhism-detail.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
