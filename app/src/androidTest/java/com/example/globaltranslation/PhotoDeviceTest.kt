@@ -102,7 +102,8 @@ class PhotoDeviceTest {
                 assertEquals(3, view.placements.size)
                 assertTrue(view.placements.all { it.bounds.left >= 0 && it.bounds.top >= 0 && it.bounds.right <= width && it.bounds.bottom <= height })
                 assertTrue(view.placements.all { it.fontSizePx > 0f })
-                assertTrue(view.placements.all { it.abbreviated })
+                assertTrue(view.placements.none { it.abbreviated })
+                assertTrue(view.placements.all { it.renderedCharacters == fullText.length })
                 val area = view.placements.first().bounds
                 val event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_UP, (area.left + area.right) / 2, (area.top + area.bottom) / 2, 0)
                 assertTrue(view.onTouchEvent(event)); assertEquals("edge", clicked); event.recycle()

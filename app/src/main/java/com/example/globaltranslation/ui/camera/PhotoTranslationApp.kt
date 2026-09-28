@@ -160,6 +160,9 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, open
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.photo != null) {
+                FilledTonalIconButton(onClick = viewModel::rotatePhoto, enabled = !state.isBusy) {
+                    Icon(Icons.Default.RotateLeft, "向左旋转照片")
+                }
                 OutlinedButton(onClick = viewModel::resetPhoto, enabled = !state.isBusy, modifier = Modifier.weight(1f)) { Text("重新拍照") }
                 Button(onClick = viewModel::translate, enabled = !state.isBusy, modifier = Modifier.weight(1.6f).testTag("retranslate")) {
                     Text(if (state.needsRecognition) "重新识别并翻译" else if (state.error != null) "重试翻译" else "重新翻译")

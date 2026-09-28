@@ -1,6 +1,7 @@
 package com.example.globaltranslation.ui.camera
 
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.globaltranslation.core.model.*
@@ -15,6 +16,10 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.*
 import java.util.UUID
 import javax.inject.Inject
+
+fun rotatePhotoCounterClockwise(photo: Bitmap): Bitmap = Bitmap.createBitmap(
+    photo, 0, 0, photo.width, photo.height, Matrix().apply { postRotate(-90f) }, true
+)
 
 enum class ProcessingStage(val label: String) {
     IDLE(""), CAPTURING("正在拍照…"), RECOGNIZING("正在识别文字…"), TRANSLATING("正在翻译…")
@@ -195,6 +200,15 @@ class CameraViewModel @Inject constructor(
         operation?.cancel()
         operation = null
         mutableState.update { it.copy(stage = ProcessingStage.IDLE) }
+    }
+
+    fun rotatePhoto() {
+        val photo = uiState.value.photo ?: return
+        cancel()
+        val rotated = rotatePhotoCounterClockwise(photo)
+        mutableState.update { it.copy(photo = rotated, blocks = emptyList(), ocrScript = null,
+            translations = emptyMap(), resultOptions = null, error = null,
+            notice = "照片已向左旋转，请重新识别并翻译。") }
     }
 
     fun resetPhoto() {

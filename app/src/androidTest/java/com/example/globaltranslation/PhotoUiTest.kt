@@ -77,6 +77,17 @@ class PhotoUiTest {
         compose.onNodeWithText("翻译要求：仅基础翻译").assertExists()
         compose.onNodeWithText("尚未应用更改，请点击下方按钮。").assertExists()
         compose.onNodeWithTag("retranslate").performClick()
-        compose.runOnIdle { assertFalse(vm.uiState.value.isResultStale); vm.resetPhoto() }
+        compose.runOnIdle { assertFalse(vm.uiState.value.isResultStale) }
+        compose.onNodeWithContentDescription("向左旋转照片").performClick()
+        compose.runOnIdle {
+            assertEquals(200, vm.uiState.value.photo?.width)
+            assertEquals(400, vm.uiState.value.photo?.height)
+            assertTrue(vm.uiState.value.blocks.isEmpty())
+            assertTrue(vm.uiState.value.translations.isEmpty())
+            assertTrue(vm.uiState.value.needsRecognition)
+            assertFalse(vm.uiState.value.isBusy)
+        }
+        compose.onNodeWithTag("retranslate").performClick()
+        compose.runOnIdle { assertFalse(vm.uiState.value.needsRecognition); vm.resetPhoto() }
     }
 }
