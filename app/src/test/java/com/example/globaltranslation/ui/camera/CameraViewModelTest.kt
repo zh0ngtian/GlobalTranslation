@@ -47,17 +47,24 @@ class CameraViewModelTest {
     @Test fun captureTranslatesAndChangesWaitForExplicitAction() = runTest {
         val h = Harness(); h.capture()
         assertEquals(2, h.vm.uiState.value.translations.size)
+        assertNotNull(h.vm.uiState.value.ocrDurationMillis)
+        assertNotNull(h.vm.uiState.value.translationDurationMillis)
+        val originalOcrDuration = h.vm.uiState.value.ocrDurationMillis
         h.vm.selectTarget("it")
         assertTrue(h.vm.uiState.value.isResultStale)
         assertEquals(1, h.calls.size)
         h.vm.translate()
         assertEquals(1, h.scripts.size)
         assertEquals("it", h.calls.last().second.target.code)
+        assertEquals(originalOcrDuration, h.vm.uiState.value.ocrDurationMillis)
+        assertNotNull(h.vm.uiState.value.translationDurationMillis)
         h.vm.selectScript(TextScript.JAPANESE)
         assertTrue(h.vm.uiState.value.needsRecognition)
         assertEquals(2, h.calls.size)
         h.vm.translate()
         assertEquals(listOf(TextScript.LATIN, TextScript.JAPANESE), h.scripts)
+        assertNotNull(h.vm.uiState.value.ocrDurationMillis)
+        assertNotNull(h.vm.uiState.value.translationDurationMillis)
         assertFalse(h.vm.uiState.value.isResultStale)
     }
 
@@ -96,6 +103,8 @@ class CameraViewModelTest {
         advanceTimeBy(60_001); runCurrent()
         assertTrue(h.vm.uiState.value.error!!.contains("超时"))
         assertEquals(blocks, h.vm.uiState.value.blocks)
+        assertNotNull(h.vm.uiState.value.ocrDurationMillis)
+        assertNull(h.vm.uiState.value.translationDurationMillis)
         assertFalse(h.vm.uiState.value.isBusy)
     }
 
@@ -145,5 +154,14 @@ class CameraViewModelTest {
         assertSame(previous, h.vm.uiState.value.photo)
         assertEquals(1, h.calls.size)
         assertFalse(h.vm.uiState.value.isBusy)
+    }
+
+    @Test fun resetClearsPreviousTiming() = runTest {
+        val h = Harness(); h.capture()
+        assertNotNull(h.vm.uiState.value.ocrDurationMillis)
+        assertNotNull(h.vm.uiState.value.translationDurationMillis)
+        h.vm.resetPhoto()
+        assertNull(h.vm.uiState.value.ocrDurationMillis)
+        assertNull(h.vm.uiState.value.translationDurationMillis)
     }
 }

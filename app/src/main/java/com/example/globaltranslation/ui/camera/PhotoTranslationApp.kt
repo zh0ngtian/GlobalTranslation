@@ -51,6 +51,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.globaltranslation.core.model.*
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,6 +140,17 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                         Spacer(Modifier.width(6.dp))
                         Text(if (showOriginal) "查看译文" else "查看原图", color = Color.White)
                     }
+                    val ocrDuration = state.ocrDurationMillis
+                    val translationDuration = state.translationDurationMillis
+                    if (!state.isBusy && state.translations.isNotEmpty() &&
+                        ocrDuration != null && translationDuration != null) {
+                        Column(Modifier.testTag("translation_timing")) {
+                            Text("OCR：${formatDuration(ocrDuration)}", color = Color.White,
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            Text("翻译：${formatDuration(translationDuration)}", color = Color.White,
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                    }
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = openSettings, enabled = !state.isBusy, modifier = Modifier.background(Color.Black.copy(alpha = .45f), CircleShape)) { Icon(Icons.Default.Settings, "设置") }
                 }
@@ -203,6 +215,9 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
     }
     selectedBlock?.let { block -> BlockDetails(block, state.translations[block.id]) { selectedBlock = null } }
 }
+
+private fun formatDuration(millis: Long): String = if (millis < 1_000) "$millis ms"
+else String.format(Locale.US, "%.2f 秒", millis / 1_000.0)
 
 private data class Choice(val id: String, val title: String, val description: String = "")
 

@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.*
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.time.TimeSource
 
 fun rotatePhotoCounterClockwise(photo: Bitmap): Bitmap = Bitmap.createBitmap(
     photo, 0, 0, photo.width, photo.height, Matrix().apply { postRotate(-90f) }, true
@@ -35,6 +36,8 @@ data class CameraUiState(
     val ocrScript: TextScript? = null,
     val translations: Map<String, String> = emptyMap(),
     val resultOptions: TranslationOptions? = null,
+    val ocrDurationMillis: Long? = null,
+    val translationDurationMillis: Long? = null,
     val stage: ProcessingStage = ProcessingStage.IDLE,
     val error: String? = null,
     val notice: String? = null
@@ -125,7 +128,8 @@ class CameraViewModel @Inject constructor(
     fun beginCapture(): Long? {
         if (uiState.value.isBusy || !uiState.value.settingsLoaded) return null
         cancel()
-        mutableState.update { it.copy(stage = ProcessingStage.CAPTURING, error = null, notice = null) }
+        mutableState.update { it.copy(stage = ProcessingStage.CAPTURING, error = null, notice = null,
+            ocrDurationMillis = null, translationDurationMillis = null) }
         return generation
     }
 
@@ -133,7 +137,8 @@ class CameraViewModel @Inject constructor(
         if (token != generation || uiState.value.stage != ProcessingStage.CAPTURING) return
         recognitionInput = null
         mutableState.update { it.copy(photo = photo, blocks = emptyList(), ocrScript = null,
-            translations = emptyMap(), resultOptions = null, stage = ProcessingStage.IDLE) }
+            translations = emptyMap(), resultOptions = null, ocrDurationMillis = null,
+            translationDurationMillis = null, stage = ProcessingStage.IDLE) }
         translate()
     }
 
@@ -157,7 +162,8 @@ class CameraViewModel @Inject constructor(
                 if (token != generation) return@launch
                 recognitionInput = input
                 mutableState.update { it.copy(photo = photo, blocks = emptyList(), ocrScript = null,
-                    translations = emptyMap(), resultOptions = null, stage = ProcessingStage.IDLE) }
+                    translations = emptyMap(), resultOptions = null, ocrDurationMillis = null,
+                    translationDurationMillis = null, stage = ProcessingStage.IDLE) }
                 operation = null
                 translate()
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -183,15 +189,20 @@ class CameraViewModel @Inject constructor(
         cancel()
         val token = generation
         mutableState.update { it.copy(error = null, notice = null,
+            ocrDurationMillis = if (reuseOcr) initial.ocrDurationMillis else null,
+            translationDurationMillis = null,
             stage = if (reuseOcr) ProcessingStage.TRANSLATING else ProcessingStage.RECOGNIZING) }
         operation = viewModelScope.launch {
             try {
+                val ocrStarted = TimeSource.Monotonic.markNow()
                 val blocks = if (reuseOcr) initial.blocks else recognizer.recognize(input, script)
+                val ocrDuration = if (reuseOcr) initial.ocrDurationMillis
+                    else ocrStarted.elapsedNow().inWholeMilliseconds
                 ensureActive()
                 if (token != generation) return@launch
                 val retained = if (reuseTranslations) initial.translations else emptyMap()
                 mutableState.update { it.copy(blocks = blocks, ocrScript = script,
-                    translations = retained, resultOptions = options) }
+                    translations = retained, resultOptions = options, ocrDurationMillis = ocrDuration) }
                 if (blocks.isEmpty()) {
                     showError("未识别到文字。请检查文字体系，或对准清晰印刷文字重新拍照。")
                     return@launch
@@ -208,13 +219,16 @@ class CameraViewModel @Inject constructor(
                 }
                 mutableState.update { it.copy(stage = ProcessingStage.TRANSLATING) }
                 val pending = blocks.filterNot { it.id in retained }
+                val translationStarted = TimeSource.Monotonic.markNow()
                 val result = withTimeout(60_000) { translator.translate(pending, options, key) }
+                val translationDuration = translationStarted.elapsedNow().inWholeMilliseconds
                 ensureActive()
                 if (token == generation) {
                     val validIds = pending.map { it.id }.toSet()
                     val validResults = result.translations.filter { it.key in validIds && it.value.isNotBlank() }
                     val combined = retained + validResults
                     mutableState.update { it.copy(translations = combined,
+                        translationDurationMillis = translationDuration,
                         error = result.error ?: if (combined.size < blocks.size) "部分文字未完成翻译，请重试。" else null) }
                 }
             } catch (_: TimeoutCancellationException) {
@@ -241,7 +255,8 @@ class CameraViewModel @Inject constructor(
         val rotated = rotatePhotoCounterClockwise(photo)
         recognitionInput = recognitionInput?.rotated(photo.width, rotated)
         mutableState.update { it.copy(photo = rotated, blocks = emptyList(), ocrScript = null,
-            translations = emptyMap(), resultOptions = null, error = null,
+            translations = emptyMap(), resultOptions = null, ocrDurationMillis = null,
+            translationDurationMillis = null, error = null,
             notice = "照片已向左旋转，请重新识别并翻译。") }
     }
 
@@ -249,7 +264,8 @@ class CameraViewModel @Inject constructor(
         cancel()
         recognitionInput = null
         mutableState.update { it.copy(photo = null, blocks = emptyList(), ocrScript = null,
-            translations = emptyMap(), resultOptions = null, error = null, notice = null) }
+            translations = emptyMap(), resultOptions = null, ocrDurationMillis = null,
+            translationDurationMillis = null, error = null, notice = null) }
     }
 
     fun showError(message: String) { mutableState.update { it.copy(error = message) } }

@@ -124,6 +124,8 @@ class PhotoBatchTest {
             val state = vm.uiState.value
             val result = JSONObject().put("id", id).put("rotation", rotation).put("script", script.name)
                 .put("width", photo.width).put("height", photo.height).put("elapsedMs", System.currentTimeMillis() - started)
+                .put("ocrDurationMillis", state.ocrDurationMillis ?: JSONObject.NULL)
+                .put("translationDurationMillis", state.translationDurationMillis ?: JSONObject.NULL)
                 .put("error", state.error ?: JSONObject.NULL)
             val entries = JSONArray()
             compose.waitUntil(5_000) {
@@ -179,7 +181,8 @@ class PhotoBatchTest {
             compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
                 File(output, "$id-ui.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }
-            if (state.error != null || state.blocks.isEmpty() || state.translations.size != state.blocks.size) failures += "$id: pipeline incomplete"
+            if (state.error != null || state.blocks.isEmpty() || state.translations.size != state.blocks.size ||
+                state.ocrDurationMillis == null || state.translationDurationMillis == null) failures += "$id: pipeline incomplete"
             compose.runOnIdle { vm.resetPhoto(); active.value = null }
         }
         File(output, "failures.json").writeText(JSONArray(failures).toString(2))

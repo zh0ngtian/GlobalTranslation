@@ -66,6 +66,9 @@ class PhotoUiTest {
             vm.captured(vm.beginCapture()!!, Bitmap.createBitmap(400, 200, Bitmap.Config.ARGB_8888))
         }
         compose.onNodeWithTag("photo_overlay").assertExists()
+        compose.onNodeWithTag("translation_timing").assertExists()
+        compose.onNodeWithText("OCR：", substring = true).assertExists()
+        compose.onNodeWithText("翻译：", substring = true).assertExists()
         // The native photo view must not paint its background over the toolbar above it.
         val settingsIcon = compose.onNodeWithContentDescription("设置").captureToImage().asAndroidBitmap()
         val pixels = IntArray(settingsIcon.width * settingsIcon.height)
@@ -107,10 +110,18 @@ class PhotoUiTest {
             assertEquals(400, vm.uiState.value.photo?.height)
             assertTrue(vm.uiState.value.blocks.isEmpty())
             assertTrue(vm.uiState.value.translations.isEmpty())
+            assertNull(vm.uiState.value.ocrDurationMillis)
+            assertNull(vm.uiState.value.translationDurationMillis)
             assertTrue(vm.uiState.value.needsRecognition)
             assertFalse(vm.uiState.value.isBusy)
         }
         compose.onNodeWithTag("retranslate").performClick()
-        compose.runOnIdle { assertFalse(vm.uiState.value.needsRecognition); vm.resetPhoto() }
+        compose.runOnIdle {
+            assertFalse(vm.uiState.value.needsRecognition)
+            assertNotNull(vm.uiState.value.ocrDurationMillis)
+            assertNotNull(vm.uiState.value.translationDurationMillis)
+        }
+        compose.onNodeWithTag("translation_timing").assertExists()
+        compose.runOnIdle { vm.resetPhoto() }
     }
 }
