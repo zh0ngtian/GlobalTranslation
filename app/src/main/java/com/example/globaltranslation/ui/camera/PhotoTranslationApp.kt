@@ -1,6 +1,10 @@
 package com.example.globaltranslation.ui.camera
 
 import android.Manifest
+import androidx.activity.compose.LocalActivity
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.net.toUri
@@ -9,11 +13,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -25,7 +32,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -53,6 +65,18 @@ fun PhotoTranslationApp(viewModel: CameraViewModel) {
         catch (_: android.content.ActivityNotFoundException) { viewModel.showError("无法打开图片选择器，请检查系统相册或文件应用。") }
     }
     var settingsPage by rememberSaveable { mutableStateOf(false) }
+    var flash by rememberSaveable { mutableStateOf(false) }
+    val view = LocalView.current
+    val activity = LocalActivity.current
+    val lightBars = settingsPage && !isSystemInDarkTheme()
+    SideEffect {
+        activity?.window?.let { window ->
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = lightBars
+                isAppearanceLightNavigationBars = lightBars
+            }
+        }
+    }
     BackHandler(settingsPage || state.photo != null || state.isBusy) {
         when {
             settingsPage -> settingsPage = false
@@ -60,147 +84,111 @@ fun PhotoTranslationApp(viewModel: CameraViewModel) {
             else -> viewModel.resetPhoto()
         }
     }
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(if (settingsPage) "设置" else "拍照翻译", fontWeight = FontWeight.SemiBold) },
-            navigationIcon = { if (settingsPage) IconButton(onClick = { settingsPage = false }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回相机")
-            } },
-            actions = { if (!settingsPage) {
-                if (state.photo != null) IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
-                    modifier = Modifier.testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择") }
-                IconButton(onClick = { settingsPage = true }, enabled = !state.isBusy) { Icon(Icons.Default.Settings, "设置") }
-            } }
-        )
-    }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            val message = state.error ?: state.notice
-            if (message != null) {
-                Surface(color = if (state.error != null) MaterialTheme.colorScheme.errorContainer
-                    else MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(message, Modifier.weight(1f).testTag("status_message"), style = MaterialTheme.typography.bodySmall)
-                        IconButton(onClick = viewModel::clearMessage) { Icon(Icons.Default.Close, "关闭提示") }
-                    }
-                }
+    if (settingsPage) {
+        Scaffold(topBar = { TopAppBar(title = { Text("设置") }, navigationIcon = {
+            IconButton(onClick = { settingsPage = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回相机") }
+        }) }) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                StatusMessage(state, viewModel)
+                SettingsContent(state, viewModel, flash) { flash = it }
             }
-            if (settingsPage) SettingsContent(state, viewModel)
-            else CameraContent(state, viewModel, choosePhoto) { settingsPage = true }
+        }
+    } else CameraContent(state, viewModel, choosePhoto, flash) { settingsPage = true }
+}
+
+@Composable
+private fun StatusMessage(state: CameraUiState, viewModel: CameraViewModel) {
+    val message = state.error ?: state.notice ?: return
+    Surface(color = if (state.error != null) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(message, Modifier.weight(1f).testTag("status_message"), style = MaterialTheme.typography.bodySmall)
+            IconButton(onClick = viewModel::clearMessage) { Icon(Icons.Default.Close, "关闭提示") }
         }
     }
 }
 
 @Composable
-private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choosePhoto: () -> Unit, openSettings: () -> Unit) {
+private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choosePhoto: () -> Unit,
+    flash: Boolean, openSettings: () -> Unit) {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     }
-    var choosing by remember { mutableStateOf<String?>(null) }
     var selectedBlock by remember { mutableStateOf<PhotoTextBlock?>(null) }
     var capture by remember { mutableStateOf<((Long) -> Unit)?>(null) }
-    var flash by remember { mutableStateOf(false) }
     LaunchedEffect(state.photo) { selectedBlock = null }
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { choosing = "script" }, enabled = !state.isBusy,
-                modifier = Modifier.weight(1f).testTag("script_selector")) {
-                Column { Text("原文文字体系", style = MaterialTheme.typography.labelSmall); Text(state.settings.script.label) }
-            }
-            OutlinedButton(onClick = { choosing = "target" }, enabled = !state.isBusy,
-                modifier = Modifier.weight(1f).testTag("target_selector")) {
-                Column { Text("翻译成", style = MaterialTheme.typography.labelSmall); Text(TargetLanguages.find(state.settings.targetLanguage).label) }
-            }
-        }
-        OutlinedButton(onClick = { choosing = "prompt" }, enabled = !state.isBusy,
-            modifier = Modifier.fillMaxWidth().testTag("prompt_selector")) {
-            Icon(Icons.Default.Tune, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("翻译要求：${state.settings.selectedTemplate?.name ?: "仅基础翻译"}", Modifier.weight(1f), maxLines = 1)
-            Icon(Icons.Default.ArrowDropDown, null)
-        }
-        if (!state.hasApiKey) {
-            Surface(onClick = openSettings, enabled = !state.isBusy, color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(12.dp)) {
-                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Key, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                    Text("先在设置中填写自己的 DeepSeek API Key", style = MaterialTheme.typography.bodySmall)
+    val photo = state.photo
+    Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = Color.White) {
+        Box(Modifier.fillMaxSize()) {
+            if (photo == null && hasPermission) CameraPreview(flash, Modifier.fillMaxSize(), focusEnabled = !state.isBusy,
+                onCaptureReady = { capture = it }, onCaptured = viewModel::captured,
+                onCaptureError = viewModel::captureFailed,
+                onCameraError = { viewModel.showError("无法打开相机，请检查相机权限或关闭其他相机应用。") })
+            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    if (photo != null) IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
+                        modifier = Modifier.background(Color.Black.copy(alpha = .45f), CircleShape).testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择") }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = openSettings, enabled = !state.isBusy, modifier = Modifier.background(Color.Black.copy(alpha = .45f), CircleShape)) { Icon(Icons.Default.Settings, "设置") }
                 }
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(20.dp))) {
-            val photo = state.photo
-            when {
-                photo != null -> AndroidView(factory = { PhotoOverlayView(it) }, modifier = Modifier.fillMaxSize().testTag("photo_overlay"),
-                    update = { it.show(photo, state.blocks, state.translations) { block -> selectedBlock = block } })
-                hasPermission -> CameraPreview(flash, Modifier.fillMaxSize(),
-                    onCaptureReady = { capture = it }, onCaptured = viewModel::captured,
-                    onCaptureError = viewModel::captureFailed,
-                    onCameraError = { viewModel.showError("无法打开相机，请检查相机权限或关闭其他相机应用。") })
-                else -> Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.PhotoCamera, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(16.dp))
-                    Text("允许使用相机，即可拍照翻译", style = MaterialTheme.typography.titleMedium)
+                StatusMessage(state, viewModel)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    if (photo != null) AndroidView(factory = { PhotoOverlayView(it) },
+                        modifier = Modifier.fillMaxSize().clipToBounds().testTag("photo_overlay"),
+                        update = { it.show(photo, state.blocks, state.translations) { block -> selectedBlock = block } })
+                    else if (!hasPermission) Column(Modifier.fillMaxSize().padding(20.dp),
+                        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.PhotoCamera, null, Modifier.size(56.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("允许使用相机，即可拍照翻译")
+                        Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("允许相机权限") }
+                        TextButton(onClick = {
+                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
+                        }) { Text("打开应用权限设置") }
+                    }
+                }
+                Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .8f))))
+                    .padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (state.isBusy) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(state.stage.label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = viewModel::cancel) { Text("取消", color = Color.White) }
+                        }
+                    } else Text(when {
+                        state.isResultStale -> "尚未应用更改，请点击下方按钮。"
+                        photo != null && state.blocks.isNotEmpty() -> "已翻译 ${state.translations.size}/${state.blocks.size} 段 · 双指放大，点按查看全文；红框未完成"
+                        photo != null -> "可旋转照片后重新识别"
+                        else -> "点按画面对焦 · 对准清晰印刷文字"
+                    }, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text("允许相机权限") }
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
-                    }) { Text("打开应用权限设置") }
-                }
-            }
-            if (photo == null && hasPermission) {
-                FilledTonalIconButton(onClick = { flash = !flash }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                    Icon(if (flash) Icons.Default.FlashOn else Icons.Default.FlashOff, if (flash) "关闭补光" else "打开补光")
-                }
-            }
-        }
-        if (state.isBusy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(state.stage.label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = viewModel::cancel) { Text("取消") }
-            }
-        } else {
-            Text(when {
-                state.isResultStale -> "尚未应用更改，请点击下方按钮。"
-                state.photo != null && state.blocks.isNotEmpty() -> "已翻译 ${state.translations.size}/${state.blocks.size} 段 · 双指放大，点按查看全文；红框未完成"
-                else -> "对准清晰印刷文字 · 原文只在本机识别"
-            }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.photo != null) {
-                FilledTonalIconButton(onClick = viewModel::rotatePhoto, enabled = !state.isBusy) {
-                    Icon(Icons.Default.RotateLeft, "向左旋转照片")
-                }
-                OutlinedButton(onClick = viewModel::resetPhoto, enabled = !state.isBusy, modifier = Modifier.weight(1f)) { Text("重新拍照") }
-                Button(onClick = viewModel::translate, enabled = !state.isBusy, modifier = Modifier.weight(1.6f).testTag("retranslate")) {
-                    Text(if (state.needsRecognition) "重新识别并翻译" else if (state.error != null) "重试翻译" else "重新翻译")
-                }
-            } else {
-                OutlinedButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
-                    modifier = Modifier.weight(1f).height(54.dp).testTag("choose_photo")) {
-                    Icon(Icons.Default.PhotoLibrary, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(6.dp)); Text("从相册选择")
-                }
-                Button(onClick = { viewModel.beginCapture()?.let { capture?.invoke(it) } },
-                    enabled = hasPermission && capture != null && !state.isBusy && state.settingsLoaded,
-                    modifier = Modifier.weight(1f).height(54.dp).testTag("capture")) {
-                    Icon(Icons.Default.PhotoCamera, null); Spacer(Modifier.width(8.dp)); Text("拍照并翻译")
+                    if (photo != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        FilledTonalIconButton(onClick = viewModel::rotatePhoto, enabled = !state.isBusy) { Icon(Icons.Default.RotateLeft, "向左旋转照片") }
+                        TextButton(onClick = viewModel::resetPhoto, enabled = !state.isBusy, modifier = Modifier.weight(1f)) { Text("重新拍照", color = Color.White) }
+                        Button(onClick = viewModel::translate, enabled = !state.isBusy, modifier = Modifier.weight(1.6f).testTag("retranslate")) {
+                            Text(if (state.needsRecognition) "重新识别并翻译" else if (state.error != null) "重试翻译" else "重新翻译")
+                        }
+                    } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
+                                modifier = Modifier.size(56.dp).testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择", Modifier.size(28.dp)) }
+                        }
+                        val canCapture = hasPermission && capture != null && !state.isBusy && state.settingsLoaded
+                        Box(Modifier.size(76.dp).border(3.dp, Color.White.copy(alpha = if (canCapture) 1f else .35f), CircleShape)
+                            .padding(7.dp).clip(CircleShape).background(Color.White.copy(alpha = if (canCapture) 1f else .35f))
+                            .clickable(enabled = canCapture, role = androidx.compose.ui.semantics.Role.Button) {
+                                viewModel.beginCapture()?.let { capture?.invoke(it) }
+                            }.testTag("capture").semantics { contentDescription = "拍照并翻译" })
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
-    }
-    when (choosing) {
-        "script" -> ChoiceDialog("原文文字体系", TextScript.entries.map { Choice(it.name, it.label, it.description) }, state.settings.script.name,
-            { viewModel.selectScript(TextScript.valueOf(it)); choosing = null }, { choosing = null })
-        "target" -> ChoiceDialog("翻译成", TargetLanguages.all.map { Choice(it.code, it.label) }, state.settings.targetLanguage,
-            { viewModel.selectTarget(it); choosing = null }, { choosing = null })
-        "prompt" -> ChoiceDialog("翻译要求", listOf(Choice("", "仅基础翻译", "使用 App 内置的翻译规则")) +
-            state.settings.templates.map { Choice(it.id, it.name, it.body) }, state.settings.selectedTemplateId.orEmpty(),
-            { viewModel.selectTemplate(it.ifEmpty { null }); choosing = null }, { choosing = null },
-            content = { TextButton(onClick = { choosing = null; openSettings() }) { Text("管理模板") } })
     }
     selectedBlock?.let { block -> BlockDetails(block, state.translations[block.id]) { selectedBlock = null } }
 }
@@ -242,12 +230,34 @@ private fun BlockDetails(block: PhotoTextBlock, translation: String?, dismiss: (
 }
 
 @Composable
-private fun SettingsContent(state: CameraUiState, viewModel: CameraViewModel) {
+private fun SettingsContent(state: CameraUiState, viewModel: CameraViewModel, flash: Boolean, setFlash: (Boolean) -> Unit) {
+    var choosing by remember { mutableStateOf<String?>(null) }
     var keyInput by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<PromptTemplate?>(null) }
     var adding by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<PromptTemplate?>(null) }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            Text("拍照与翻译", style = MaterialTheme.typography.titleLarge)
+            OutlinedButton(onClick = { choosing = "script" }, modifier = Modifier.fillMaxWidth().testTag("script_selector")) {
+                Text("原文文字体系：${state.settings.script.label}")
+            }
+            OutlinedButton(onClick = { choosing = "target" }, modifier = Modifier.fillMaxWidth().testTag("target_selector")) {
+                Text("翻译成：${TargetLanguages.find(state.settings.targetLanguage).label}")
+            }
+            OutlinedButton(onClick = { choosing = "prompt" }, modifier = Modifier.fillMaxWidth().testTag("prompt_selector")) {
+                Text("翻译要求：${state.settings.selectedTemplate?.name ?: "仅基础翻译"}")
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("相机补光")
+                    Text("返回取景时生效", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = flash, onCheckedChange = setFlash, modifier = Modifier.semantics { contentDescription = "相机补光" })
+            }
+            Text("修改后，返回当前照片并点击重新翻译；更换文字体系需重新识别。", style = MaterialTheme.typography.bodySmall)
+        }
+        item { HorizontalDivider() }
         item {
             Text("DeepSeek API", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(8.dp))
@@ -270,7 +280,7 @@ private fun SettingsContent(state: CameraUiState, viewModel: CameraViewModel) {
                 Text("翻译要求模板", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 FilledTonalButton(onClick = { adding = true }, modifier = Modifier.testTag("add_template")) { Text("新增") }
             }
-            Text("模板补充术语、领域或风格；目标语言始终以相机页的选择为准。", style = MaterialTheme.typography.bodySmall,
+            Text("模板补充术语、领域或风格；目标语言始终以本页“翻译成”的选择为准。", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (state.settings.templates.isEmpty()) item {
@@ -295,6 +305,15 @@ private fun SettingsContent(state: CameraUiState, viewModel: CameraViewModel) {
             Text("照片在本机识字，只将识别出的文字和翻译要求发送给 DeepSeek。照片与译文仅保留在当前会话中。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+    when (choosing) {
+        "script" -> ChoiceDialog("原文文字体系", TextScript.entries.map { Choice(it.name, it.label, it.description) }, state.settings.script.name,
+            { viewModel.selectScript(TextScript.valueOf(it)); choosing = null }, { choosing = null })
+        "target" -> ChoiceDialog("翻译成", TargetLanguages.all.map { Choice(it.code, it.label) }, state.settings.targetLanguage,
+            { viewModel.selectTarget(it); choosing = null }, { choosing = null })
+        "prompt" -> ChoiceDialog("翻译要求", listOf(Choice("", "仅基础翻译", "使用 App 内置的翻译规则")) +
+            state.settings.templates.map { Choice(it.id, it.name, it.body) }, state.settings.selectedTemplateId.orEmpty(),
+            { viewModel.selectTemplate(it.ifEmpty { null }); choosing = null }, { choosing = null })
     }
     if (adding || editing != null) TemplateEditor(editing,
         save = { name, body -> viewModel.saveTemplate(editing?.id, name, body); adding = false; editing = null },

@@ -42,19 +42,21 @@ class PhotoUiTest {
         }, prefs, keys)
         compose.setContent { GlobalTranslationTheme { PhotoTranslationApp(vm) } }
         compose.onNodeWithContentDescription("设置").performClick()
-        compose.onNodeWithTag("key_input").performTextInput("test-only")
-        compose.onNodeWithTag("save_key").performClick()
+        compose.onNodeWithTag("key_input").performScrollTo().performTextInput("test-only")
+        compose.onNodeWithTag("save_key").performScrollTo().performClick()
         compose.onNodeWithTag("add_template").performScrollTo().performClick()
         compose.onNodeWithTag("template_name").performTextInput("机械工程")
         compose.onNodeWithTag("template_body").performTextInput("保留单位和型号")
         compose.onNodeWithTag("save_template").performClick()
-        compose.onNodeWithContentDescription("返回相机").performClick()
-        compose.onNodeWithTag("prompt_selector").performClick()
-        compose.onNodeWithText("机械工程").performClick()
-        compose.onNodeWithTag("script_selector").performClick()
+        compose.onNodeWithTag("prompt_selector").performScrollTo().performClick()
+        compose.onNode(hasText("机械工程") and hasAnyAncestor(isDialog())).performClick()
+        compose.onNodeWithTag("script_selector").performScrollTo().performClick()
         compose.onAllNodesWithText("日文").onFirst().performClick()
-        compose.onNodeWithTag("target_selector").performClick()
+        compose.onNodeWithTag("target_selector").performScrollTo().performClick()
         compose.onNodeWithText("意大利语").performClick()
+        compose.onNodeWithContentDescription("返回相机").performClick()
+        compose.onNodeWithTag("script_selector").assertDoesNotExist()
+        compose.onNodeWithTag("target_selector").assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(TextScript.JAPANESE, prefs.settings.value.script)
             assertEquals("it", prefs.settings.value.targetLanguage)
@@ -63,6 +65,13 @@ class PhotoUiTest {
             vm.captured(vm.beginCapture()!!, Bitmap.createBitmap(400, 200, Bitmap.Config.ARGB_8888))
         }
         compose.onNodeWithTag("photo_overlay").assertExists()
+        // The native photo view must not paint its background over the toolbar above it.
+        val settingsIcon = compose.onNodeWithContentDescription("设置").captureToImage().asAndroidBitmap()
+        val pixels = IntArray(settingsIcon.width * settingsIcon.height)
+        settingsIcon.getPixels(pixels, 0, settingsIcon.width, 0, 0, settingsIcon.width, settingsIcon.height)
+        assertTrue("Settings icon was covered by photo drawing", pixels.any {
+            android.graphics.Color.red(it) > 230 && android.graphics.Color.green(it) > 230 && android.graphics.Color.blue(it) > 230
+        })
         val proof = compose.onRoot().captureToImage().asAndroidBitmap()
         File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "translation-ui.png").outputStream().use { proof.compress(Bitmap.CompressFormat.PNG, 100, it) }
         compose.onNodeWithTag("photo_overlay").performClick()
@@ -74,7 +83,8 @@ class PhotoUiTest {
         compose.onNode(hasText("删除") and hasAnyAncestor(isDialog())).performClick()
         compose.onNodeWithContentDescription("返回相机").performClick()
         compose.onNodeWithTag("photo_overlay").assertExists()
-        compose.onNodeWithText("翻译要求：仅基础翻译").assertExists()
+        compose.onNodeWithTag("prompt_selector").assertDoesNotExist()
+        compose.runOnIdle { assertNull(prefs.settings.value.selectedTemplateId) }
         compose.onNodeWithText("尚未应用更改，请点击下方按钮。").assertExists()
         compose.onNodeWithTag("retranslate").performClick()
         compose.runOnIdle { assertFalse(vm.uiState.value.isResultStale) }
