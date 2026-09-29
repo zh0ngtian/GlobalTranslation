@@ -171,7 +171,10 @@ class PhotoOverlayView(context: Context) : View(context) {
                     .build()
             }
             val sourceLineHeight = frame.height / block.text.lines().size.coerceAtLeast(1)
-            val preferred = minOf(sourceLineHeight, photo.width / 40f).coerceAtLeast(1f)
+            // Start from the source line height. The previous photo.width / 40 cap made
+            // large lettering look like fine print even when the translation had ample room.
+            // The fit check below still reduces longer translations until every glyph fits.
+            val preferred = sourceLineHeight.coerceAtLeast(1f)
             val minimum = (preferred * .35f).coerceAtLeast(1f)
             fun fits(candidate: StaticLayout) = candidate.height <= availableHeight &&
                 (0 until candidate.lineCount).all { candidate.getLineWidth(it) <= availableWidthPx }

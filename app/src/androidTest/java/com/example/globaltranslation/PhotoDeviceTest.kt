@@ -147,6 +147,34 @@ class PhotoDeviceTest {
         }
     }
 
+    @Test fun shorterTranslationKeepsTheSourceLetterSizeWhenSpaceIsAvailable() {
+        instrumentation.runOnMainSync {
+            val photo = Bitmap.createBitmap(1000, 700, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.LTGRAY) }
+            val source = listOf(
+                "L'UTILISATION DE CET ASCENSEUR",
+                "EST STRICTEMENT INTERDITE",
+                "POUR LES DEMENAGEMENTS",
+                "ET EMMENAGEMENTS",
+                "SOUS PEINE",
+                "DE POURSUITES JUDICIAIRES"
+            ).joinToString("\n")
+            val translation = "严禁使用本电梯\n进行搬出和搬入\n违者将\n被追究法律责任"
+            val block = PhotoTextBlock("notice", source, TextBounds(100f, 170f, 900f, 530f))
+            val view = PhotoOverlayView(context)
+            view.show(photo, listOf(block), mapOf(block.id to translation)) {}
+            view.layout(0, 0, photo.width, photo.height)
+            val output = Bitmap.createBitmap(photo.width, photo.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(output))
+            val placement = view.placements.single()
+            val sourceLineHeight = block.bounds.height / source.lines().size
+            assertTrue("Translation should stay close to the source letter size: $placement",
+                placement.fontSizePx >= sourceLineHeight * .8f)
+            assertEquals(translation.length, placement.renderedCharacters)
+            assertFalse(placement.abbreviated)
+            output.recycle(); photo.recycle()
+        }
+    }
+
     @Test fun keyEncryptedExcludedFromBackupAndPreferencesPersist() = runBlocking {
         val keyFile = File(context.noBackupFilesDir, "deepseek-key.enc")
         // Never replace an existing user's credential during a regression run.

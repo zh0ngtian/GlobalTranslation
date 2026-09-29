@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -115,12 +116,20 @@ class PhotoBatchTest {
                 if (gallery != null) vm.importPhotoInput { gallery }
                 else vm.captured(requireNotNull(vm.beginCapture()), photo)
             }
-            compose.waitUntil(70_000) { !vm.uiState.value.isBusy }
+            compose.waitUntil(70_000) {
+                val current = vm.uiState.value
+                !current.isBusy && (current.error != null ||
+                    (current.photo != null && current.blocks.isNotEmpty() && current.translations.size == current.blocks.size))
+            }
             val state = vm.uiState.value
             val result = JSONObject().put("id", id).put("rotation", rotation).put("script", script.name)
                 .put("width", photo.width).put("height", photo.height).put("elapsedMs", System.currentTimeMillis() - started)
                 .put("error", state.error ?: JSONObject.NULL)
             val entries = JSONArray()
+            compose.waitUntil(5_000) {
+                runCatching { compose.onAllNodesWithTag("photo_overlay").fetchSemanticsNodes().isNotEmpty() }
+                    .getOrDefault(false)
+            }
             compose.runOnIdle {
                 val view = PhotoOverlayView(context)
                 view.show(photo, state.blocks, state.translations) {}
