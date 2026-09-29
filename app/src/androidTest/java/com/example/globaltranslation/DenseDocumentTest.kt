@@ -48,11 +48,15 @@ class DenseDocumentTest {
         for ((column, label) in labels.withIndex()) for (row in 1..36) {
             canvas.drawText("$label park regulation number $row", 50f + column * 220, 270f + row * 24, paint)
         }
-        val blocks = MlKitPhotoRecognizer().recognize(image, TextScript.LATIN)
-        assertFalse(blocks.any { block -> labels.count { it in block.text } > 1 })
-        val text = blocks.joinToString("\n") { it.text }
-        for (label in labels) assertEquals(label, 36, Regex(label).findAll(text).count())
-        assertTrue(blocks.any { "PUBLIC PARK" in it.text })
+        for (scale in listOf(1, 3)) {
+            val candidate = if (scale == 1) image else Bitmap.createScaledBitmap(image, image.width * scale, image.height * scale, true)
+            val blocks = MlKitPhotoRecognizer().recognize(candidate, TextScript.LATIN)
+            assertFalse("Mixed columns at scale $scale", blocks.any { block -> labels.count { it in block.text } > 1 })
+            val text = blocks.joinToString("\n") { it.text }
+            for (label in labels) assertEquals("$label at scale $scale", 36, Regex(label).findAll(text).count())
+            assertTrue(blocks.any { "PUBLIC PARK" in it.text })
+            if (candidate !== image) candidate.recycle()
+        }
         image.recycle()
     }
 

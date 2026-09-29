@@ -54,7 +54,10 @@ class MlKitPhotoRecognizer @Inject constructor() : PhotoTextRecognizer {
         if (words.count { abs(it.angle) <= 15 } < words.size * .8) return@withContext original
         val h = DocumentLayout.medianHeight(words)
         val regions = DocumentLayout.columns(words, preview.width, preview.height)
-        val small = h < 14 && initial.textBlocks.sumOf { it.lines.size } >= 12
+        // Measure density at the same analysis size as RasterColumns. A high-resolution
+        // photo can have readable pixels per letter and still be a dense multi-column page.
+        val analysisScale = min(1f, 1800f / max(preview.width, preview.height))
+        val small = h * analysisScale < 14 && initial.textBlocks.sumOf { it.lines.size } >= 12
         val needsOriginal = input?.readRegion != null && input.originalScale > 1.05f && h < 24 && words.size >= 20
         if (!small && !needsOriginal && regions.size == 1) return@withContext original
         val raster = if (small) RasterColumns.detect(preview, words) else null

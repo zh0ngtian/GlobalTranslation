@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.globaltranslation"
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "2.4"
+        versionCode = 7
+        versionName = "2.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {

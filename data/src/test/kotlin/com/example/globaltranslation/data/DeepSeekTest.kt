@@ -46,6 +46,11 @@ class DeepSeekTest {
             DeepSeekProtocol.response(output, setOf("b0p0"), mapOf("b0p0" to "Vehicles are prohibited."))
         }
         assertTrue(DeepSeekProtocol.response(output, setOf("b0p0"), mapOf("b0p0" to "No ... vehicles")).isNotEmpty())
+        // OCR may preserve only two of the printed list-ending dots.
+        assertTrue(DeepSeekProtocol.response(output, setOf("b0p0"), mapOf("b0p0" to "No .. vehicles")).isNotEmpty())
+        assertThrows(UnclearTranslationException::class.java) {
+            DeepSeekProtocol.response(output, setOf("b0p0"), mapOf("b0p0" to "No. Vehicles prohibited."))
+        }
         assertTrue(DeepSeekProtocol.response(envelope("[{\"id\":\"b0p0\",\"text\":\"禁止[原文识别不清]机动车\"}]"),
             setOf("b0p0"), mapOf("b0p0" to "No garbled vehicles")).isNotEmpty())
         MockWebServer().use { server ->

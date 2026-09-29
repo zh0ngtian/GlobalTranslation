@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
+import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
@@ -51,23 +52,35 @@ class PhotoBatchTest {
         credential.delete()
         val output = File(context.cacheDir, "photo-batch").apply { mkdirs() }
         val recognizer = MlKitPhotoRecognizer()
-        val actual = DeepSeekTranslator(OkHttpClient.Builder().callTimeout(60, TimeUnit.SECONDS).retryOnConnectionFailure(false).build())
+        var responseNumber = 0
+        val actual = DeepSeekTranslator(OkHttpClient.Builder().callTimeout(60, TimeUnit.SECONDS).retryOnConnectionFailure(false)
+            .addInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                // Private fixtures only. Never record request headers or credentials.
+                if (response.isSuccessful) File(output, "response-${++responseNumber}.json").writeText(response.peekBody(2L * 1024 * 1024).string())
+                response
+            }.build())
         val active = mutableStateOf<CameraViewModel?>(null)
         compose.setContent { GlobalTranslationTheme { active.value?.let { PhotoTranslationApp(it) } } }
         val failures = mutableListOf<String>()
         for (index in 0 until cases.length()) {
             val config = cases.getJSONObject(index)
             val id = config.getString("id")
-            val source = requireNotNull(BitmapFactory.decodeFile(File(input, config.getString("file")).path))
+            val gallery = if (config.optBoolean("gallery", false)) runBlocking {
+                loadSelectedPhotoInput(context.contentResolver, Uri.fromFile(File(input, config.getString("file"))))
+            } else null
+            val source = gallery?.preview as? Bitmap ?: requireNotNull(BitmapFactory.decodeFile(File(input, config.getString("file")).path))
             val rotation = config.optInt("rotation", 0)
             val oriented = if (rotation == 0) source else if (rotation == 270) rotatePhotoCounterClockwise(source)
                 else Bitmap.createBitmap(source, 0, 0, source.width, source.height, Matrix().apply { postRotate(rotation.toFloat()) }, true)
             val scale = config.optInt("scale", 1)
             val photo = if (scale == 1) oriented else Bitmap.createScaledBitmap(oriented, oriented.width * scale, oriented.height * scale, true)
+            require(gallery == null || (rotation == 0 && scale == 1)) { "Gallery fixtures use their EXIF orientation and native resolution" }
+            val recognitionInput = gallery ?: photo
             val script = TextScript.valueOf(config.getString("script"))
             val started = System.currentTimeMillis()
             if (phase == "ocr") {
-                val blocks = runBlocking { recognizer.recognize(photo, script) }
+                val blocks = runBlocking { recognizer.recognize(recognitionInput, script) }
                 File(output, "$id.json").writeText(JSONObject().put("id", id).put("rotation", rotation).put("script", script.name)
                     .put("ocrMillis", System.currentTimeMillis() - started).put("width", photo.width).put("height", photo.height)
                     .put("blocks", JSONArray().apply { blocks.forEach { put(entry(it)) } }).toString(2))
@@ -98,7 +111,10 @@ class PhotoBatchTest {
                 active.value = vm
             }
             compose.waitUntil(5000) { vm.uiState.value.settingsLoaded }
-            compose.runOnIdle { vm.captured(requireNotNull(vm.beginCapture()), photo) }
+            compose.runOnIdle {
+                if (gallery != null) vm.importPhotoInput { gallery }
+                else vm.captured(requireNotNull(vm.beginCapture()), photo)
+            }
             compose.waitUntil(70_000) { !vm.uiState.value.isBusy }
             val state = vm.uiState.value
             val result = JSONObject().put("id", id).put("rotation", rotation).put("script", script.name)
