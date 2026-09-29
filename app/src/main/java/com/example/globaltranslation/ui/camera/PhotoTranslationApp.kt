@@ -58,7 +58,7 @@ fun PhotoTranslationApp(viewModel: CameraViewModel) {
     val resolver = LocalContext.current.applicationContext.contentResolver
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) viewModel.importPhoto { loadSelectedPhoto(resolver, uri) }
+        if (uri != null) viewModel.importPhotoInput { loadSelectedPhotoInput(resolver, uri) }
     }
     val choosePhoto: () -> Unit = {
         try { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
@@ -118,6 +118,7 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
         hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     }
     var selectedBlock by remember { mutableStateOf<PhotoTextBlock?>(null) }
+    var showOriginal by remember(state.photo) { mutableStateOf(false) }
     var capture by remember { mutableStateOf<((Long) -> Unit)?>(null) }
     LaunchedEffect(state.photo) { selectedBlock = null }
     val photo = state.photo
@@ -132,6 +133,12 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                     verticalAlignment = Alignment.CenterVertically) {
                     if (photo != null) IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
                         modifier = Modifier.background(Color.Black.copy(alpha = .45f), CircleShape).testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择") }
+                    if (photo != null) TextButton(onClick = { showOriginal = !showOriginal; selectedBlock = null },
+                        modifier = Modifier.testTag("toggle_original")) {
+                        Icon(if (showOriginal) Icons.Default.Translate else Icons.Default.Visibility, null, tint = Color.White)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (showOriginal) "查看译文" else "查看原图", color = Color.White)
+                    }
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = openSettings, enabled = !state.isBusy, modifier = Modifier.background(Color.Black.copy(alpha = .45f), CircleShape)) { Icon(Icons.Default.Settings, "设置") }
                 }
@@ -139,7 +146,10 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (photo != null) AndroidView(factory = { PhotoOverlayView(it) },
                         modifier = Modifier.fillMaxSize().clipToBounds().testTag("photo_overlay"),
-                        update = { it.show(photo, state.blocks, state.translations) { block -> selectedBlock = block } })
+                        update = {
+                            it.show(photo, state.blocks, state.translations) { block -> selectedBlock = block }
+                            it.showOriginal(showOriginal)
+                        })
                     else if (!hasPermission) Column(Modifier.fillMaxSize().padding(20.dp),
                         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.PhotoCamera, null, Modifier.size(56.dp))
@@ -160,8 +170,9 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                             TextButton(onClick = viewModel::cancel) { Text("取消", color = Color.White) }
                         }
                     } else Text(when {
+                        showOriginal -> "正在查看原图 · 双指缩放，拖动查看"
                         state.isResultStale -> "尚未应用更改，请点击下方按钮。"
-                        photo != null && state.blocks.isNotEmpty() -> "已翻译 ${state.translations.size}/${state.blocks.size} 段 · 双指放大，点按查看全文；红框未完成"
+                        photo != null && state.blocks.isNotEmpty() -> "已返回 ${state.translations.size}/${state.blocks.size} 段 · 点按核对原文；红框未完成"
                         photo != null -> "可旋转照片后重新识别"
                         else -> "点按画面对焦 · 对准清晰印刷文字"
                     }, style = MaterialTheme.typography.bodySmall)

@@ -36,6 +36,15 @@ class PhotoOverlayView(context: Context) : View(context) {
     private val missingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(186, 26, 26); style = Paint.Style.STROKE; strokeWidth = 2 * resources.displayMetrics.density
     }
+    private var originalVisible = false
+    fun showOriginal(value: Boolean) {
+        if (originalVisible == value) return
+        originalVisible = value
+        hitRects = emptyList()
+        placements = emptyList()
+        accessibility.invalidateRoot()
+        invalidate()
+    }
     private var zoom = 1f
     private var panX = 0f
     private var panY = 0f
@@ -202,6 +211,12 @@ class PhotoOverlayView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        val saved = canvas.save()
+        canvas.clipRect(0, 0, width, height)
+        try { drawPhoto(canvas) } finally { canvas.restoreToCount(saved) }
+    }
+
+    private fun drawPhoto(canvas: Canvas) {
         canvas.drawColor(Color.rgb(29, 30, 34))
         val photo = bitmap ?: return
         if (width <= 0 || height <= 0) return
@@ -212,6 +227,7 @@ class PhotoOverlayView(context: Context) : View(context) {
             height / 2f + (base.offsetY - height / 2f) * zoom + panY)
         val imageRect = transform.map(TextBounds(0f, 0f, photo.width.toFloat(), photo.height.toFloat())).toRectF()
         canvas.drawBitmap(photo, null, imageRect, imagePaint)
+        if (originalVisible) { placements = emptyList(); hitRects = emptyList(); return }
         canvas.save()
         canvas.clipRect(imageRect)
         canvas.translate(transform.offsetX, transform.offsetY)
@@ -296,7 +312,7 @@ class PhotoOverlayView(context: Context) : View(context) {
             MotionEvent.ACTION_POINTER_DOWN -> { moved = true; return true }
             MotionEvent.ACTION_UP -> {
                 parent?.requestDisallowInterceptTouchEvent(false)
-                if (!moved) blocks.getOrNull(hitIndex(event.x, event.y))?.let { performClick(); click(it) }
+                if (!moved && !originalVisible) blocks.getOrNull(hitIndex(event.x, event.y))?.let { performClick(); click(it) }
                 return true
             }
             MotionEvent.ACTION_CANCEL -> { moved = true; parent?.requestDisallowInterceptTouchEvent(false); return true }

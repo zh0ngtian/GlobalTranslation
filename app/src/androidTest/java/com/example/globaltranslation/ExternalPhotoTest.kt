@@ -189,6 +189,14 @@ class ExternalPhotoTest {
         compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
             File(output, "buddhism-zoom.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+        val beforeToggle = compose.onNodeWithTag("photo_overlay").captureToImage().asAndroidBitmap()
+        compose.onNodeWithTag("toggle_original").performClick()
+        compose.onNodeWithTag("photo_overlay").captureToImage().asAndroidBitmap().let { bitmap ->
+            assertFalse(beforeToggle.sameAs(bitmap))
+            File(output, "original-zoom.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        compose.onNodeWithTag("toggle_original").performClick()
+        assertTrue("Toggling changed zoom or pan", beforeToggle.sameAs(compose.onNodeWithTag("photo_overlay").captureToImage().asAndroidBitmap()))
         compose.runOnIdle {
             assertTrue("Zoom did not reveal readable translations", overlay.placements.any { !it.abbreviated })
             vm.resetPhoto()

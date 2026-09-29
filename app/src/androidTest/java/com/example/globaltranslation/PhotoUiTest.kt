@@ -35,10 +35,11 @@ class PhotoUiTest {
     @Test fun templatesLanguagesKeyAndPhotoSurviveSettingsNavigation() {
         val prefs = Prefs()
         val keys = Keys()
+        var translationCalls = 0
         val vm = CameraViewModel(object : PhotoTextRecognizer {
             override suspend fun recognize(image: Any, script: TextScript) = listOf(PhotoTextBlock("one", "Torque 25 N·m", TextBounds(10f, 10f, 390f, 190f)))
         }, object : PhotoTranslator {
-            override suspend fun translate(blocks: List<PhotoTextBlock>, options: TranslationOptions, apiKey: String) = TranslationResult(mapOf("one" to if (options.target.code == "it") "Coppia 25 N·m" else "扭矩25 N·m"))
+            override suspend fun translate(blocks: List<PhotoTextBlock>, options: TranslationOptions, apiKey: String) = TranslationResult(mapOf("one" to if (options.target.code == "it") "Coppia 25 N·m" else "扭矩25 N·m")).also { translationCalls++ }
         }, prefs, keys)
         compose.setContent { GlobalTranslationTheme { PhotoTranslationApp(vm) } }
         compose.onNodeWithContentDescription("设置").performClick()
@@ -74,6 +75,18 @@ class PhotoUiTest {
         })
         val proof = compose.onRoot().captureToImage().asAndroidBitmap()
         File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "translation-ui.png").outputStream().use { proof.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val callsBeforeToggle = translationCalls
+        val translatedPixels = compose.onNodeWithTag("photo_overlay").captureToImage().asAndroidBitmap()
+        compose.onNodeWithTag("toggle_original").performClick()
+        compose.onNodeWithText("查看译文").assertExists()
+        compose.onNodeWithTag("photo_overlay").performClick()
+        compose.onNodeWithText("完整译文").assertDoesNotExist()
+        val originalPixels = compose.onNodeWithTag("photo_overlay").captureToImage().asAndroidBitmap()
+        assertFalse(translatedPixels.sameAs(originalPixels))
+        compose.onNodeWithTag("toggle_original").performClick()
+        compose.onNodeWithText("查看原图").assertExists()
+        assertTrue(translatedPixels.sameAs(compose.onNodeWithTag("photo_overlay").captureToImage().asAndroidBitmap()))
+        assertEquals(callsBeforeToggle, translationCalls)
         compose.onNodeWithTag("photo_overlay").performClick()
         compose.onNodeWithText("完整译文").assertExists()
         compose.onNodeWithText("Coppia 25 N·m").assertExists()

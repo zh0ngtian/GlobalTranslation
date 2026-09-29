@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -74,7 +75,7 @@ class PhotoBatchTest {
             }
             val preferences = object : TranslationPreferences {
                 override val settings = MutableStateFlow(TranslationSettings(script = script,
-                    templates = listOf(PromptTemplate("art", "佛教美术", "使用佛教美术术语")), selectedTemplateId = "art"))
+                    templates = listOf(PromptTemplate("art", "测试要求", config.optString("requirements", "使用佛教美术术语"))), selectedTemplateId = "art"))
                 override suspend fun update(transform: (TranslationSettings) -> TranslationSettings) { settings.value = transform(settings.value) }
             }
             val keys = object : ApiKeyRepository {
@@ -139,6 +140,14 @@ class PhotoBatchTest {
                     .put("uiCompleteBlocks", overlay.placements.count { !it.abbreviated && it.renderedCharacters == state.translations[it.blockId]?.length })
                 if (overlay.placements.size != state.blocks.size || overlay.placements.any { it.abbreviated || it.renderedCharacters != state.translations[it.blockId]?.length })
                     failures += "$id: App viewport did not render all characters"
+            }
+            compose.onNodeWithTag("toggle_original").captureToImage().asAndroidBitmap().let { button ->
+                var white = 0
+                for (y in 0 until button.height) for (x in 0 until button.width) {
+                    val pixel = button.getPixel(x, y)
+                    if (android.graphics.Color.red(pixel) > 220 && android.graphics.Color.green(pixel) > 220 && android.graphics.Color.blue(pixel) > 220) white++
+                }
+                if (white < 20) failures += "$id: original toggle was covered by photo"
             }
             result.put("blocks", entries)
             File(output, "$id-result.json").writeText(result.toString(2))

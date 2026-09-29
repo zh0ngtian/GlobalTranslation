@@ -36,7 +36,7 @@ class DeepSeekTranslator(
                         .post(DeepSeekProtocol.request(batch, options, model).toRequestBody("application/json; charset=utf-8".toMediaType()))
                         .build()
                     val response = execute(request)
-                    results.putAll(DeepSeekProtocol.response(response, batch.map { it.id }.toSet()))
+                    results.putAll(DeepSeekProtocol.response(response, batch.map { it.id }.toSet(), batch.associate { it.id to it.text }))
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     failure = when (error) {
@@ -47,6 +47,7 @@ class DeepSeekTranslator(
                             in 500..599 -> "DeepSeek 服务暂时不可用，请稍后重试。"
                             else -> "翻译请求未被接受，请检查配置后重试。"
                         }
+                        is UnclearTranslationException -> "模型用省略号替代了部分内容，本批未采用。请查看原文，重试或拍摄更清晰的图片。"
                         is InterruptedIOException -> "翻译请求超时，请检查网络后重试。"
                         is IOException -> "无法连接 DeepSeek，请检查网络后重试。"
                         else -> "翻译结果格式异常或不完整，请重试。"

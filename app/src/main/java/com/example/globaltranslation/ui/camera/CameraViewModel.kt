@@ -56,6 +56,7 @@ class CameraViewModel @Inject constructor(
     val uiState = mutableState.asStateFlow()
     private var generation = 0L
     private var operation: Job? = null
+    private var recognitionInput: PhotoRecognitionInput? = null
 
     init {
         viewModelScope.launch {
@@ -130,6 +131,7 @@ class CameraViewModel @Inject constructor(
 
     fun captured(token: Long, photo: Bitmap) {
         if (token != generation || uiState.value.stage != ProcessingStage.CAPTURING) return
+        recognitionInput = null
         mutableState.update { it.copy(photo = photo, blocks = emptyList(), ocrScript = null,
             translations = emptyMap(), resultOptions = null, stage = ProcessingStage.IDLE) }
         translate()
@@ -140,16 +142,20 @@ class CameraViewModel @Inject constructor(
         mutableState.update { it.copy(stage = ProcessingStage.IDLE, error = "拍照失败，请重试。") }
     }
 
-    fun importPhoto(load: suspend () -> Bitmap) {
+    fun importPhoto(load: suspend () -> Bitmap) = importPhotoInput { PhotoRecognitionInput(load()) }
+
+    fun importPhotoInput(load: suspend () -> PhotoRecognitionInput) {
         if (uiState.value.isBusy || !uiState.value.settingsLoaded) return
         cancel()
         val token = generation
         mutableState.update { it.copy(stage = ProcessingStage.IMPORTING, error = null, notice = null) }
         val importing = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
-                val photo = load()
+                val input = load()
+                val photo = input.preview as Bitmap
                 ensureActive()
                 if (token != generation) return@launch
+                recognitionInput = input
                 mutableState.update { it.copy(photo = photo, blocks = emptyList(), ocrScript = null,
                     translations = emptyMap(), resultOptions = null, stage = ProcessingStage.IDLE) }
                 operation = null
@@ -169,6 +175,7 @@ class CameraViewModel @Inject constructor(
         val initial = uiState.value
         val photo = initial.photo ?: return
         if (initial.isBusy) return
+        val input = recognitionInput ?: photo
         val script = initial.settings.script
         val options = initial.settings.options
         val reuseOcr = initial.ocrScript == script && initial.blocks.isNotEmpty()
@@ -179,7 +186,7 @@ class CameraViewModel @Inject constructor(
             stage = if (reuseOcr) ProcessingStage.TRANSLATING else ProcessingStage.RECOGNIZING) }
         operation = viewModelScope.launch {
             try {
-                val blocks = if (reuseOcr) initial.blocks else recognizer.recognize(photo, script)
+                val blocks = if (reuseOcr) initial.blocks else recognizer.recognize(input, script)
                 ensureActive()
                 if (token != generation) return@launch
                 val retained = if (reuseTranslations) initial.translations else emptyMap()
@@ -232,6 +239,7 @@ class CameraViewModel @Inject constructor(
         val photo = uiState.value.photo ?: return
         cancel()
         val rotated = rotatePhotoCounterClockwise(photo)
+        recognitionInput = recognitionInput?.rotated(photo.width, rotated)
         mutableState.update { it.copy(photo = rotated, blocks = emptyList(), ocrScript = null,
             translations = emptyMap(), resultOptions = null, error = null,
             notice = "照片已向左旋转，请重新识别并翻译。") }
@@ -239,6 +247,7 @@ class CameraViewModel @Inject constructor(
 
     fun resetPhoto() {
         cancel()
+        recognitionInput = null
         mutableState.update { it.copy(photo = null, blocks = emptyList(), ocrScript = null,
             translations = emptyMap(), resultOptions = null, error = null, notice = null) }
     }

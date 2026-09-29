@@ -40,6 +40,22 @@ class DeepSeekTest {
         assertThrows(Exception::class.java) { DeepSeekProtocol.response(envelope("[{\"id\":\"a\",\"text\":\"x\"},{\"id\":\"a\",\"text\":\"y\"}]"), setOf("a", "b")) }
     }
 
+    @Test fun introducedEllipsesAreRejectedButSourcePunctuationAndExplicitUncertaintyAreKept() = runBlocking {
+        val output = envelope("[{\"id\":\"b0p0\",\"text\":\"禁止……机动车\"}]")
+        assertThrows(UnclearTranslationException::class.java) {
+            DeepSeekProtocol.response(output, setOf("b0p0"), mapOf("b0p0" to "Vehicles are prohibited."))
+        }
+        assertTrue(DeepSeekProtocol.response(output, setOf("b0p0"), mapOf("b0p0" to "No ... vehicles")).isNotEmpty())
+        assertTrue(DeepSeekProtocol.response(envelope("[{\"id\":\"b0p0\",\"text\":\"禁止[原文识别不清]机动车\"}]"),
+            setOf("b0p0"), mapOf("b0p0" to "No garbled vehicles")).isNotEmpty())
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(output))
+            val result = DeepSeekTranslator(OkHttpClient(), server.url("/").toString()).translate(listOf(block()), options, "test-only")
+            assertTrue(result.translations.isEmpty())
+            assertTrue(result.error!!.contains("省略号"))
+        }
+    }
+
     @Test fun realHttpAdapterMapsIdsAndProtectsErrorBodies() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody(envelope(valid)))
