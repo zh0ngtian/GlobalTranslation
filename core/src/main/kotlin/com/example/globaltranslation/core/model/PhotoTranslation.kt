@@ -62,7 +62,13 @@ data class TextBounds(val left: Float, val top: Float, val right: Float, val bot
     }
 }
 
-data class PhotoTextBlock(val id: String, val text: String, val bounds: TextBounds)
+data class PhotoPoint(val x: Float, val y: Float)
+
+data class PhotoTextBlock(
+    val id: String, val text: String, val bounds: TextBounds,
+    val rotationDegrees: Float = 0f,
+    val cornerPoints: List<PhotoPoint> = emptyList()
+)
 
 data class TranslationResult(
     val translations: Map<String, String>,

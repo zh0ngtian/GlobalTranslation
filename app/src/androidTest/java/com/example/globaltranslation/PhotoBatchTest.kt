@@ -116,9 +116,12 @@ class PhotoBatchTest {
                     entries.put(entry(block).put("translation", state.translations[block.id])
                         .put("abbreviated", placement?.abbreviated).put("fontPx", placement?.fontSizePx)
                         .put("renderedCharacters", placement?.renderedCharacters)
+                        .put("renderedRotation", placement?.rotationDegrees)
                         .put("placement", placement?.bounds?.let { bounds(it) }))
                 }
                 if (view.placements.size != state.blocks.size || view.placements.any { it.abbreviated || it.renderedCharacters != state.translations[it.blockId]?.length }) failures += "$id: missing or abbreviated overlay"
+                if (view.placements.any { p -> kotlin.math.abs(p.rotationDegrees - state.blocks.first { it.id == p.blockId }.rotationDegrees) > .01f })
+                    failures += "$id: incorrect translation direction"
                 for ((i, a) in view.placements.withIndex()) for (b in view.placements.drop(i + 1)) {
                     if (a.bounds.left < b.bounds.right && b.bounds.left < a.bounds.right && a.bounds.top < b.bounds.bottom && b.bounds.top < a.bounds.bottom)
                         failures += "$id: overlapping ${a.blockId}/${b.blockId}"
@@ -151,4 +154,6 @@ class PhotoBatchTest {
 
     private fun bounds(value: TextBounds) = JSONArray(listOf(value.left, value.top, value.right, value.bottom))
     private fun entry(block: PhotoTextBlock) = JSONObject().put("id", block.id).put("source", block.text).put("bounds", bounds(block.bounds))
+        .put("rotationDegrees", block.rotationDegrees)
+        .put("cornerPoints", JSONArray().apply { block.cornerPoints.forEach { put(JSONArray(listOf(it.x, it.y))) } })
 }

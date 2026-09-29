@@ -14,6 +14,9 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Singleton
 class MlKitPhotoRecognizer @Inject constructor() : PhotoTextRecognizer {
@@ -39,7 +42,13 @@ class MlKitPhotoRecognizer @Inject constructor() : PhotoTextRecognizer {
             val bounds = TextBounds(box.left.toFloat(), box.top.toFloat(), box.right.toFloat(), box.bottom.toFloat())
                 .clipped(image.width, image.height) ?: return@mapIndexedNotNull null
             // Preserve short labels, technical acronyms, prices and units.
-            if (text.isEmpty()) null else PhotoTextBlock("block_$index", text, bounds)
+            val lines = block.lines.filter { it.angle.isFinite() }
+            // Circular mean preserves upside-down lines near the -180/180 boundary.
+            val x = lines.sumOf { cos(Math.toRadians(it.angle.toDouble())) * it.text.length.coerceAtLeast(1) }
+            val y = lines.sumOf { sin(Math.toRadians(it.angle.toDouble())) * it.text.length.coerceAtLeast(1) }
+            val angle = if (lines.isEmpty()) 0f else Math.toDegrees(atan2(y, x)).toFloat()
+            if (text.isEmpty()) null else PhotoTextBlock("block_$index", text, bounds, angle,
+                block.cornerPoints?.map { PhotoPoint(it.x.toFloat(), it.y.toFloat()) }.orEmpty())
         }
     }
 }

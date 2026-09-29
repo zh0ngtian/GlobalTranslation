@@ -18,9 +18,12 @@ import com.example.globaltranslation.core.model.PhotoTextBlock
 import com.example.globaltranslation.core.model.TextBounds
 import com.example.globaltranslation.core.util.fitPhoto
 import com.example.globaltranslation.core.util.PhotoTransform
+import com.example.globaltranslation.core.util.TextFrame
+import com.example.globaltranslation.core.util.textFrame
 import kotlin.math.max
 
-data class OverlayPlacement(val blockId: String, val bounds: TextBounds, val fontSizePx: Float, val abbreviated: Boolean, val renderedCharacters: Int = 0)
+data class OverlayPlacement(val blockId: String, val bounds: TextBounds, val fontSizePx: Float, val abbreviated: Boolean,
+    val renderedCharacters: Int = 0, val rotationDegrees: Float = 0f)
 
 /** Draws the captured bitmap and text through one transform, including rotation handled at capture. */
 class PhotoOverlayView(context: Context) : View(context) {
@@ -66,7 +69,7 @@ class PhotoOverlayView(context: Context) : View(context) {
         private set
     private data class RenderedBlock(
         val source: RectF, val rect: RectF, val layout: StaticLayout?,
-        val fontSize: Float, val contentScale: Float, val backgroundColor: Int
+        val fontSize: Float, val contentScale: Float, val backgroundColor: Int, val frame: TextFrame
     )
     private var rendered = emptyList<RenderedBlock?>()
     private val accessibility = object : ExploreByTouchHelper(this) {
@@ -119,6 +122,16 @@ class PhotoOverlayView(context: Context) : View(context) {
             val a = sources[i] ?: continue
             val b = sources[j] ?: continue
             if (!RectF.intersects(a, b)) continue
+            val vertical = kotlin.math.abs(kotlin.math.sin(Math.toRadians(blocks[i].rotationDegrees.toDouble()))) > .7 &&
+                kotlin.math.abs(kotlin.math.sin(Math.toRadians(blocks[j].rotationDegrees.toDouble()))) > .7
+            if (vertical) {
+                val left = if (a.centerX() <= b.centerX()) i else j
+                val right = if (left == i) j else i
+                val boundary = (maxOf(a.left, b.left) + minOf(a.right, b.right)) / 2
+                areas[left]?.let { it.right = minOf(it.right, boundary) }
+                areas[right]?.let { it.left = maxOf(it.left, boundary) }
+                continue
+            }
             val upper = if (a.centerY() <= b.centerY()) i else j
             val lower = if (upper == i) j else i
             val boundary = (maxOf(a.top, b.top) + minOf(a.bottom, b.bottom)) / 2
@@ -130,11 +143,12 @@ class PhotoOverlayView(context: Context) : View(context) {
             val rect = areas[index]?.takeIf { it.width() > 0 && it.height() > 0 } ?: source
             val translated = translations[block.id]
             val color = sampleBackground(photo, source)
-            if (translated == null) return@mapIndexed RenderedBlock(source, rect, null, 0f, 1f, color)
-            val padding = minOf(photo.width / 960f, rect.width() / 8, rect.height() / 8)
-            val availableWidthPx = (rect.width() - 2 * padding).coerceAtLeast(0f)
+            val frame = textFrame(block, TextBounds(rect.left, rect.top, rect.right, rect.bottom))
+            if (translated == null) return@mapIndexed RenderedBlock(source, rect, null, 0f, 1f, color, frame)
+            val padding = minOf(photo.width / 960f, frame.width / 8, frame.height / 8)
+            val availableWidthPx = (frame.width - 2 * padding).coerceAtLeast(0f)
             val availableWidth = availableWidthPx.toInt().coerceAtLeast(1)
-            val availableHeight = (rect.height() - 2 * padding).coerceAtLeast(0f)
+            val availableHeight = (frame.height - 2 * padding).coerceAtLeast(0f)
             val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 this.color = if (Color.red(color) * .299 + Color.green(color) * .587 + Color.blue(color) * .114 > 90)
                     Color.rgb(22, 22, 25) else Color.WHITE
@@ -147,7 +161,7 @@ class PhotoOverlayView(context: Context) : View(context) {
                     .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
                     .build()
             }
-            val sourceLineHeight = block.bounds.height / block.text.lines().size.coerceAtLeast(1)
+            val sourceLineHeight = frame.height / block.text.lines().size.coerceAtLeast(1)
             val preferred = minOf(sourceLineHeight, photo.width / 40f).coerceAtLeast(1f)
             val minimum = (preferred * .35f).coerceAtLeast(1f)
             fun fits(candidate: StaticLayout) = candidate.height <= availableHeight &&
@@ -171,7 +185,7 @@ class PhotoOverlayView(context: Context) : View(context) {
 
             }
             paint.textSize = size
-            RenderedBlock(source, rect, best, size, contentScale, color)
+            RenderedBlock(source, rect, best, size, contentScale, color, frame)
         }
     }
 
@@ -229,15 +243,18 @@ class PhotoOverlayView(context: Context) : View(context) {
                 canvas.drawRect(rect, missingPaint)
                 return@forEachIndexed
             }
-            val padding = minOf(photo.width / 960f, rect.width() / 8, rect.height() / 8)
+            val frame = item.frame
+            val padding = minOf(photo.width / 960f, frame.width / 8, frame.height / 8)
             canvas.save()
             canvas.clipRect(rect)
-            canvas.translate(rect.left + padding, rect.top + padding)
+            canvas.translate(rect.centerX(), rect.centerY())
+            canvas.rotate(frame.rotationDegrees)
+            canvas.translate(-frame.width / 2 + padding, -frame.height / 2 + padding)
             canvas.scale(item.contentScale, item.contentScale)
             item.layout.draw(canvas)
             canvas.restore()
             laidOut += OverlayPlacement(blocks[index].id, bounds, item.fontSize * item.contentScale * transform.scale, false,
-                item.layout.getLineEnd(item.layout.lineCount - 1))
+                item.layout.getLineEnd(item.layout.lineCount - 1), frame.rotationDegrees)
         }
         canvas.restore()
         val changed = hitRects != hitAreas

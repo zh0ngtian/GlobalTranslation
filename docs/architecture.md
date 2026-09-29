@@ -15,6 +15,7 @@ Hilt 在 `PhotoModule` 绑定服务。ViewModel 依赖 core 接口，测试使�
 1. CameraX 获取独立 Bitmap，并按拍摄方向旋转，再关闭 ImageProxy。预览结束时解绑相机、关闭补光。
    相册入口使用系统 `PickVisualMedia(ImageOnly)`；`PhotoImporter` 在 IO 线程读取所选 URI，经 ImageDecoder 应用 EXIF 方向并限制最长边为 4096 像素。读取过程可取消，失败或取消保留旧图；成功才替换当前照片并自动执行后续流程。
 2. ViewModel 固定当前照片、文字体系和翻译选项。只调用所选体系对应的本地识别器，保留文字块 ID、原文和像素坐标。
+   `PhotoTextBlock` 还保存角度和四角坐标；角度来自 ML Kit `Text.Line.angle`，四角来自文字块。`TextFrame` 将四角投影到阅读坐标，覆盖层在该坐标中测量文字后再旋转绘制，避免侧转段落被当作窄横排框。[ML Kit 角度与坐标约定](https://developers.google.com/android/reference/com/google/mlkit/vision/text/Text.Line)
 3. DeepSeek 请求只包含文字、临时分片 ID 和翻译要求。每批最多 6000 字符/40 个分片，超长单块无损拆分；全部分片成功才发布该原始块。
 4. 校验响应完成原因、JSON、ID 集合和非空译文。分批失败保留完整成功块，手动重试未完成块。
 5. 覆盖层在照片像素坐标中用 StaticLayout 测量字号、行宽和换行并缓存，照片和文字使用同一个缩放及留白变换；取消图片文字的 12sp 屏幕下限，空间不足时缩放完整布局，不做省略或截断，缩放手势不触发重新排版。采样周边底色先遮盖全部原文，再绘制译文；点按和无障碍节点保留全文。
