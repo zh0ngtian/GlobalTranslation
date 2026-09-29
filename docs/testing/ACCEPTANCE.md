@@ -54,7 +54,7 @@ adb exec-out run-as com.example.globaltranslation cat cache/real-api-acceptance.
 
 - 未验证所有 Android 厂商/API 版本、手写、倾斜纸张、反光、弱光或所有领域术语。首版范围为清晰印刷体。
 - 图片覆盖按用户参考图允许小于 12sp，保留原文位置并优先完整显示；整图状态的小字需要放大或点按详情阅读。详情和普通界面使用正常字号。
-- Release 只验证构建和压缩，未配置正式签名或商店上架；真机运行的是 Debug APK。
+- 未配置正式签名或商店上架。当前下载交付采用本地 Android 测试签名；自动设备回归使用 Debug，2.1 的签名 Release 另行验证安装、启动及实际系统选图。
 - lint 保留依赖更新提示、静态绘制分配提示及兼容 API 弃用提示；不关闭错误检查、不使用 baseline 隐藏错误。
 - 代码、运行、文档和规则在本仓库内核对；未改其他项目、Agent 全局规则或生成记忆。保留构建产物和测试证据供复核，不清理其他分支或工作树。
 
@@ -118,3 +118,16 @@ adb exec-out run-as com.example.globaltranslation cat cache/real-api-acceptance.
 - `phase=replay`：每个输入旁放置此前的 `<id>-result.json`，验证 OCR ID 与原文一致后回放译文，不调用 API。
 
 入口：`adb shell am instrument -w -e phase replay -e class com.example.globaltranslation.PhotoBatchTest com.example.globaltranslation.test/androidx.test.runner.AndroidJUnitRunner`。导出 `cache/photo-batch/` 中的 JSON、PNG、`failures.json` 后清理手机上的注入文件与缓存。测试源码只包含通用入口，不包含私有照片内容或 Key。
+
+## 2.1：从相册选择图片（2026-09-29）
+
+相机页新增“从相册选择”，结果页顶部可再次选图。系统选择器只接收单张图片；取消选择保留当前结果。导入在后台解码，处理 EXIF 方向，最长边超过 4096 像素时等比缩小；使用软件 Bitmap 供 OCR 与覆盖底色采样。读取成功后自动按当前文字体系、目标语言和模板执行原有识别翻译流程，不申请存储或相册读取权限。
+
+本次验证：
+
+- 19 项 JVM 测试通过（core 4、data 7、app 8）。新增导入后重新 OCR 并沿用目标语言／模板，以及读取失败、重复点击、取消、迟到解码不覆盖旧图的用例。
+- 12 个设备入口中 9 项通过，3 个需要私有输入／真实 Key 的入口按条件跳过。新增测试使用真实 MediaStore Content URI、ImageDecoder 和 ML Kit，替代系统选择器的回调与翻译器，验证取消选图、自动识别翻译、再次选图和当前设置。另测 EXIF 90° 的像素方向、5000 像素图片缩为 4096、软件像素和损坏图片报错。
+- 单独安装并启动最终签名 Release，在未授予相机权限、未配置 Key 的真机上，经真实系统文件选择器导入用户此前提供的测试图，自动识别出 6 个文字块，正确提示配置 Key，未发起 API 请求。相册入口和结果页布局已查看实际截图；临时相册图片在测试后删除。
+- Debug／Release 构建、APK 签名校验及完整 lint 通过。首次并发 lint 遇到 Kotlin 分析器内部崩溃，串行重跑通过，未关闭检查或添加 baseline。
+
+本次未改变翻译协议、提示词或覆盖排版算法，也未新增真实 DeepSeek 请求；新增入口的网络衔接通过受控翻译器验证，已有真实 API 证据见前述记录。设备范围仍为 HONOR Android 12，其他 Android 版本和云相册提供商未逐一验证。私有截图、构建日志及下载记录保留在忽略目录 `app/build/reports/gallery/`。

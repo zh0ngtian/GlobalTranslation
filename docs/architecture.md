@@ -6,13 +6,14 @@
 | --- | --- | --- |
 | `:core` | 文字体系、语言、模板、坐标、服务接口、无损分批 | `PhotoTranslation.kt`、`PhotoServices.kt`、`TranslationBatches.kt`、`PhotoGeometry.kt` |
 | `:data` | ML Kit OCR、DeepSeek HTTP/JSON、DataStore、Keystore | `MlKitPhotoRecognizer.kt`、`DeepSeekTranslator.kt`、`DeepSeekProtocol.kt`、`PhotoPreferences.kt`、`SecureApiKeyStore.kt` |
-| `:app` | 相机、状态编排、Compose 设置、覆盖绘制 | `CameraPreview.kt`、`CameraViewModel.kt`、`PhotoTranslationApp.kt`、`PhotoOverlayView.kt` |
+| `:app` | 相机、相册导入、状态编排、Compose 设置、覆盖绘制 | `CameraPreview.kt`、`PhotoImporter.kt`、`CameraViewModel.kt`、`PhotoTranslationApp.kt`、`PhotoOverlayView.kt` |
 
 Hilt 在 `PhotoModule` 绑定服务。ViewModel 依赖 core 接口，测试使用可控制的假实现；HTTP 协议通过 MockWebServer 验证。
 
 ## 状态与数据流
 
 1. CameraX 获取独立 Bitmap，并按拍摄方向旋转，再关闭 ImageProxy。预览结束时解绑相机、关闭补光。
+   相册入口使用系统 `PickVisualMedia(ImageOnly)`；`PhotoImporter` 在 IO 线程读取所选 URI，经 ImageDecoder 应用 EXIF 方向并限制最长边为 4096 像素。读取过程可取消，失败或取消保留旧图；成功才替换当前照片并自动执行后续流程。
 2. ViewModel 固定当前照片、文字体系和翻译选项。只调用所选体系对应的本地识别器，保留文字块 ID、原文和像素坐标。
 3. DeepSeek 请求只包含文字、临时分片 ID 和翻译要求。每批最多 6000 字符/40 个分片，超长单块无损拆分；全部分片成功才发布该原始块。
 4. 校验响应完成原因、JSON、ID 集合和非空译文。分批失败保留完整成功块，手动重试未完成块。

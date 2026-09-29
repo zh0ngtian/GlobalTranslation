@@ -113,4 +113,37 @@ class CameraViewModelTest {
         h.vm.captured(token, mock(Bitmap::class.java))
         assertNull(h.vm.uiState.value.photo)
     }
+
+    @Test fun importedPhotoReplacesOcrAndAutomaticallyUsesCurrentOptions() = runTest {
+        val h = Harness(); h.capture()
+        h.vm.selectTarget("it")
+        h.vm.saveTemplate(null, "美术", "使用佛教美术术语")
+        h.vm.selectTemplate(h.prefs.settings.value.templates.single().id)
+        val imported = mock(Bitmap::class.java)
+        h.vm.importPhoto { imported }
+        assertSame(imported, h.vm.uiState.value.photo)
+        assertEquals(2, h.scripts.size)
+        assertEquals(2, h.calls.size)
+        assertEquals("it", h.calls.last().second.target.code)
+        assertEquals("使用佛教美术术语", h.calls.last().second.additionalRequirements)
+        assertEquals(2, h.vm.uiState.value.translations.size)
+        assertFalse(h.vm.uiState.value.isBusy)
+    }
+
+    @Test fun failedOrCancelledImportKeepsPreviousPhotoAndIgnoresLateDecode() = runTest {
+        val h = Harness(); h.capture()
+        val previous = h.vm.uiState.value.photo
+        h.vm.importPhoto { throw java.io.IOException("unreadable") }
+        assertSame(previous, h.vm.uiState.value.photo)
+        assertEquals(2, h.vm.uiState.value.translations.size)
+        assertTrue(h.vm.uiState.value.error!!.contains("无法读取"))
+        val release = CompletableDeferred<Unit>()
+        h.vm.importPhoto { withContext(NonCancellable) { release.await() }; mock(Bitmap::class.java) }
+        assertEquals(ProcessingStage.IMPORTING, h.vm.uiState.value.stage)
+        h.vm.importPhoto { error("Duplicate import must not run") }
+        h.vm.cancel(); release.complete(Unit); runCurrent()
+        assertSame(previous, h.vm.uiState.value.photo)
+        assertEquals(1, h.calls.size)
+        assertFalse(h.vm.uiState.value.isBusy)
+    }
 }

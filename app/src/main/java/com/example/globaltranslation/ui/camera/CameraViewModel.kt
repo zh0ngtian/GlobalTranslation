@@ -8,6 +8,7 @@ import com.example.globaltranslation.core.model.*
 import com.example.globaltranslation.core.provider.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ensureActive
@@ -22,7 +23,7 @@ fun rotatePhotoCounterClockwise(photo: Bitmap): Bitmap = Bitmap.createBitmap(
 )
 
 enum class ProcessingStage(val label: String) {
-    IDLE(""), CAPTURING("正在拍照…"), RECOGNIZING("正在识别文字…"), TRANSLATING("正在翻译…")
+    IDLE(""), CAPTURING("正在拍照…"), IMPORTING("正在读取图片…"), RECOGNIZING("正在识别文字…"), TRANSLATING("正在翻译…")
 }
 
 data class CameraUiState(
@@ -137,6 +138,31 @@ class CameraViewModel @Inject constructor(
     fun captureFailed(token: Long) {
         if (token != generation) return
         mutableState.update { it.copy(stage = ProcessingStage.IDLE, error = "拍照失败，请重试。") }
+    }
+
+    fun importPhoto(load: suspend () -> Bitmap) {
+        if (uiState.value.isBusy || !uiState.value.settingsLoaded) return
+        cancel()
+        val token = generation
+        mutableState.update { it.copy(stage = ProcessingStage.IMPORTING, error = null, notice = null) }
+        val importing = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val photo = load()
+                ensureActive()
+                if (token != generation) return@launch
+                mutableState.update { it.copy(photo = photo, blocks = emptyList(), ocrScript = null,
+                    translations = emptyMap(), resultOptions = null, stage = ProcessingStage.IDLE) }
+                operation = null
+                translate()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (token == generation) showError("无法读取这张图片，请重新选择或使用其他图片。")
+            } finally {
+                if (token == generation) mutableState.update { it.copy(stage = ProcessingStage.IDLE) }
+            }
+        }
+        operation = importing
+        importing.start()
     }
 
     fun translate() {

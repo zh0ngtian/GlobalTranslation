@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,7 +43,15 @@ import com.example.globaltranslation.core.model.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhotoTranslationApp(viewModel: CameraViewModel) {
+    val resolver = LocalContext.current.applicationContext.contentResolver
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewModel.importPhoto { loadSelectedPhoto(resolver, uri) }
+    }
+    val choosePhoto: () -> Unit = {
+        try { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+        catch (_: android.content.ActivityNotFoundException) { viewModel.showError("无法打开图片选择器，请检查系统相册或文件应用。") }
+    }
     var settingsPage by rememberSaveable { mutableStateOf(false) }
     BackHandler(settingsPage || state.photo != null || state.isBusy) {
         when {
@@ -57,8 +66,10 @@ fun PhotoTranslationApp(viewModel: CameraViewModel) {
             navigationIcon = { if (settingsPage) IconButton(onClick = { settingsPage = false }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回相机")
             } },
-            actions = { if (!settingsPage) IconButton(onClick = { settingsPage = true }, enabled = !state.isBusy) {
-                Icon(Icons.Default.Settings, "设置")
+            actions = { if (!settingsPage) {
+                if (state.photo != null) IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
+                    modifier = Modifier.testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择") }
+                IconButton(onClick = { settingsPage = true }, enabled = !state.isBusy) { Icon(Icons.Default.Settings, "设置") }
             } }
         )
     }) { padding ->
@@ -74,13 +85,13 @@ fun PhotoTranslationApp(viewModel: CameraViewModel) {
                 }
             }
             if (settingsPage) SettingsContent(state, viewModel)
-            else CameraContent(state, viewModel) { settingsPage = true }
+            else CameraContent(state, viewModel, choosePhoto) { settingsPage = true }
         }
     }
 }
 
 @Composable
-private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, openSettings: () -> Unit) {
+private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choosePhoto: () -> Unit, openSettings: () -> Unit) {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
@@ -168,9 +179,14 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, open
                     Text(if (state.needsRecognition) "重新识别并翻译" else if (state.error != null) "重试翻译" else "重新翻译")
                 }
             } else {
+                OutlinedButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
+                    modifier = Modifier.weight(1f).height(54.dp).testTag("choose_photo")) {
+                    Icon(Icons.Default.PhotoLibrary, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(6.dp)); Text("从相册选择")
+                }
                 Button(onClick = { viewModel.beginCapture()?.let { capture?.invoke(it) } },
                     enabled = hasPermission && capture != null && !state.isBusy && state.settingsLoaded,
-                    modifier = Modifier.fillMaxWidth().height(54.dp).testTag("capture")) {
+                    modifier = Modifier.weight(1f).height(54.dp).testTag("capture")) {
                     Icon(Icons.Default.PhotoCamera, null); Spacer(Modifier.width(8.dp)); Text("拍照并翻译")
                 }
             }
