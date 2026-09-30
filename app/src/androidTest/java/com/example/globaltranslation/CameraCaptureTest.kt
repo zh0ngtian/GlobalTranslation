@@ -22,6 +22,7 @@ class CameraCaptureTest {
 
     @Test fun capturesOnceAndPreservesPhotoAcrossSettingsAndRotation() {
         compose.waitUntil(30_000) { compose.onAllNodes(hasTestTag("capture") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(hasText("相机错误", substring = true)).assertCountEquals(0)
         compose.onNodeWithTag("script_selector").assertDoesNotExist()
         val preview = compose.onNodeWithTag("camera_preview").fetchSemanticsNode().boundsInRoot
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
@@ -55,6 +56,7 @@ class CameraCaptureTest {
             "Pinch did not change zoom: before=$zoomBefore, after=$zoomAfter",
             compose.onAllNodesWithTag("camera_zoom").fetchSemanticsNodes().isNotEmpty(),
         )
+        compose.onAllNodes(hasText("相机错误", substring = true)).assertCountEquals(0)
         compose.onNodeWithTag("capture").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("photo_overlay").fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle {

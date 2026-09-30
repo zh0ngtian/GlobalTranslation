@@ -268,6 +268,7 @@ class CameraViewModel @Inject constructor(
             translationDurationMillis = null, error = null, notice = null) }
     }
 
-    fun showError(message: String) { mutableState.update { it.copy(error = message) } }
+    fun showError(message: String) { mutableState.update { it.copy(error = message, notice = null) } }
+    fun showNotice(message: String) { mutableState.update { it.copy(error = null, notice = message) } }
     fun clearMessage() { mutableState.update { it.copy(error = null, notice = null) } }
 }

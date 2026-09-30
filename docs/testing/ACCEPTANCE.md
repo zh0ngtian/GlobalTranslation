@@ -259,3 +259,12 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 完整本地门禁通过：25 项 JVM 测试、Lint、Debug／Release 构建均成功。HONOR Android 12 真机相机专项用例通过，覆盖双指缩放、点按对焦、拍照、设置往返和横竖屏切换。
 - 2.9（versionCode 11）由专用发布证书签名，`apksigner` v2 校验通过；已在真机安装并冷启动成功。APK 为 49,854,800 字节，SHA-256 为 `3bf04b134b6aa91c7dbb1dc8b52c13033c57d4537ce7434541cb4f20bcd7565b`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,800 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/d6033312f457f770a560eb5b6adb290a/GlobalTranslation-2.9-test.apk`，到期时间为 2026-10-02 21:11:56（Asia/Shanghai）。
+
+## 2.10：细化相机错误与降级提示（2026-09-30）
+
+相机不再把初始化、后置镜头绑定、长焦能力读取、物理镜头切换和补光失败统一显示为“无法打开相机”。错误及提示带稳定的 `CAM-*` 编号；Logcat 标签 `GT.Camera` 记录失败步骤、镜头类型和异常堆栈。相机已经成功取景后，物理长焦信息读取失败显示 `CAM-104` 并继续使用逻辑相机缩放；长焦绑定失败显示 `CAM-102` 并恢复普通镜头，不再误报相机整体不可用。CameraX 在镜头过渡期间取消旧补光请求属于预期行为，只写调试日志。
+
+- 25 项 JVM 测试、Lint、Debug／Release 构建通过。Lint 首次并发分析触发 Kotlin FIR 分析器内部异常，停止旧 Gradle 进程后用单线程完整重跑成功，最终报告无错误。
+- HONOR Android 12 真机相机用例通过，覆盖正常取景无“相机错误”、点按对焦、双指缩放、拍照、设置往返和横竖屏切换。最终 Release 冷启动成功；正常取景两秒后 `adb logcat -d -s 'GT.Camera:V' '*:S'` 没有警告或错误。
+- 2.10（versionCode 12）使用同一专用发布证书，`apksigner` v2 校验通过。APK 为 49,854,796 字节，SHA-256 为 `7dd4d4ceff26f9cab0d6e55b3cdf6923032446822e42532fc5896281a0d504d0`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/d75cc9d582e7abd415d4abf652fb9909/GlobalTranslation-2.10-test.apk`，到期时间为 2026-10-02 22:41:13（Asia/Shanghai）。

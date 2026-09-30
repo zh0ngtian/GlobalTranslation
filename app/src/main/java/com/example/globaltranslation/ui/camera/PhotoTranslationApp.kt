@@ -127,7 +127,8 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
             if (photo == null && hasPermission) CameraPreview(flash, Modifier.fillMaxSize(), focusEnabled = !state.isBusy,
                 onCaptureReady = { capture = it }, onCaptured = viewModel::captured,
                 onCaptureError = viewModel::captureFailed,
-                onCameraError = { viewModel.showError("无法打开相机，请检查相机权限或关闭其他相机应用。") })
+                onCameraError = viewModel::showError,
+                onCameraNotice = viewModel::showNotice)
             Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
