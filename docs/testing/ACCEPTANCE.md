@@ -243,7 +243,7 @@ adb exec-out run-as io.github.zh0ngtian.globaltranslation cat cache/real-api-acc
 
 此前 2.6 和 2.7 都由 Android Debug 证书签名；对比旧外部服务和本机服务下载的文件后，APK 字节和签名没有被上传服务修改。Play Protect 提示与未知、未登记的侧载应用身份一致，不是本机 HTTP 服务重签名的结果。本版开始使用独立应用 ID `io.github.zh0ngtian.globaltranslation` 和专用 4096 位 RSA 发布密钥，源码 namespace 暂时保留 `com.example.globaltranslation`。发布证书 SHA-256 为 `E9:70:F0:1B:78:A2:AD:FF:66:23:9A:20:ED:58:5B:26:5E:90:0D:3A:47:A4:22:54:20:C3:75:81:46:3E:55:5D`；私钥被 Git 忽略，密码只保存在 macOS 登录钥匙串。
 
-Android Developer Console 的有限分发账号已创建；软件包名称显示“已注册”，上述证书显示“已验证”。目标 Google Play 设备尚未授权，控制台仍显示“添加您的第一部设备”；下一步须生成授权码并由该手机确认。因此，本次只能确认 APK 身份、签名和登记内容一致，尚不能宣称用户手机上的 Play Protect 提示已经消失。
+Android Developer Console 的有限分发账号已创建；软件包名称显示“已注册”，上述证书显示“已验证”。目标 Google Play 设备尚未授权，控制台仍显示“添加您的第一部设备”。用户已决定不继续设备授权流程，APK 直接作为测试包交付；因此只能确认 APK 身份、签名和登记内容一致，不能宣称用户手机上的 Play Protect 提示已经消失。
 
 相机取景新增双指连续缩放和倍率提示。缩放范围来自 CameraX `ZoomState`；后置逻辑多摄公开物理镜头时，根据 `intrinsicZoomRatio` 选择不超过当前倍率的最近长焦，并将全局倍率换算为该物理镜头的本地倍率。缩小时低于镜头固有倍率的 85% 才回切，避免临界值来回跳转；厂商虽然公开镜头但拒绝当前 Preview／ImageCapture 组合时，该镜头在本次会话中停用并恢复逻辑相机缩放。点按对焦和双指缩放统一由取景画面上的 Compose 手势层处理，仍使用 PreviewView 坐标做 AF／AE。
 
@@ -251,3 +251,11 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 25 项 JVM 测试、完整 lint、Debug／Release 构建通过；固定真机套件 18 个入口中 15 项通过、3 项按私有输入或真实 Key 条件跳过。Gradle 最终报告 21 个测试事件，其中包含跳过事件。
 - 2.8（versionCode 10）由专用发布证书签名，`apksigner` v2 校验通过，已在真机安装并冷启动成功。APK 为 49,854,800 字节，SHA-256 为 `d036b85f0380bbf27bc0aec8b58290abc2ab13b32358fd17888fb56afe2dbebd`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,800 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/a3830f552f98bfdc41a9f1490cbed0f3/GlobalTranslation-2.8-test.apk`，到期时间为 2026-10-02 21:00:10（Asia/Shanghai）。
+
+## 2.9：移除拍照页渐变遮罩（2026-09-30）
+
+拍照页底部操作区移除从透明到黑色的渐变背景，相机取景直接铺到页面底部。快门描边以及相册、设置按钮自身的可见性样式继续保留，不改变点按对焦、双指缩放、长焦切换、拍照和相册导入行为。
+
+- 完整本地门禁通过：25 项 JVM 测试、Lint、Debug／Release 构建均成功。HONOR Android 12 真机相机专项用例通过，覆盖双指缩放、点按对焦、拍照、设置往返和横竖屏切换。
+- 2.9（versionCode 11）由专用发布证书签名，`apksigner` v2 校验通过；已在真机安装并冷启动成功。APK 为 49,854,800 字节，SHA-256 为 `3bf04b134b6aa91c7dbb1dc8b52c13033c57d4537ce7434541cb4f20bcd7565b`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,800 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/d6033312f457f770a560eb5b6adb290a/GlobalTranslation-2.9-test.apk`，到期时间为 2026-10-02 21:11:56（Asia/Shanghai）。

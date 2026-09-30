@@ -35,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -173,8 +172,8 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                         }) { Text("打开应用权限设置") }
                     }
                 }
-                Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .8f))))
-                    .padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
                     if (state.isBusy) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                         Row(verticalAlignment = Alignment.CenterVertically) {
