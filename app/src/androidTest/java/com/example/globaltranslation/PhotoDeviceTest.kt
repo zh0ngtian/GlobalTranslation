@@ -147,6 +147,64 @@ class PhotoDeviceTest {
         }
     }
 
+    @Test fun liftingFirstPinchFingerDoesNotJumpPhoto() {
+        instrumentation.runOnMainSync {
+            val photo = Bitmap.createBitmap(1000, 700, Bitmap.Config.ARGB_8888)
+            val block = PhotoTextBlock("center", "Source", TextBounds(475f, 325f, 525f, 375f))
+            val view = PhotoOverlayView(context)
+            view.show(photo, listOf(block), mapOf(block.id to "译文")) {}
+            view.layout(0, 0, 1000, 700)
+            val output = Bitmap.createBitmap(1000, 700, Bitmap.Config.ARGB_8888)
+            val down = android.os.SystemClock.uptimeMillis()
+
+            fun touch(action: Int, ids: IntArray, xs: FloatArray, elapsed: Long) {
+                val properties = Array(ids.size) { index -> MotionEvent.PointerProperties().apply {
+                    id = ids[index]
+                    toolType = MotionEvent.TOOL_TYPE_FINGER
+                } }
+                val coords = Array(ids.size) { index -> MotionEvent.PointerCoords().apply {
+                    x = xs[index]
+                    y = 350f
+                    pressure = 1f
+                    size = 1f
+                } }
+                val event = MotionEvent.obtain(
+                    down, down + elapsed, action, ids.size, properties, coords,
+                    0, 0, 1f, 1f, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0,
+                )
+                view.onTouchEvent(event)
+                event.recycle()
+            }
+
+            touch(MotionEvent.ACTION_DOWN, intArrayOf(0), floatArrayOf(400f), 0)
+            touch(
+                MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                intArrayOf(0, 1), floatArrayOf(400f, 600f), 16,
+            )
+            touch(MotionEvent.ACTION_MOVE, intArrayOf(0, 1), floatArrayOf(350f, 650f), 32)
+            touch(MotionEvent.ACTION_MOVE, intArrayOf(0, 1), floatArrayOf(300f, 700f), 48)
+            view.draw(Canvas(output))
+            val beforeRelease = view.placements.single().bounds
+
+            // Lift pointer 0 first. Pointer 1 keeps the same coordinates for the next move.
+            touch(
+                MotionEvent.ACTION_POINTER_UP or (0 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                intArrayOf(0, 1), floatArrayOf(300f, 700f), 64,
+            )
+            touch(MotionEvent.ACTION_MOVE, intArrayOf(1), floatArrayOf(700f), 80)
+            touch(MotionEvent.ACTION_UP, intArrayOf(1), floatArrayOf(700f), 96)
+            view.draw(Canvas(output))
+            val afterRelease = view.placements.single().bounds
+
+            assertEquals(beforeRelease.left, afterRelease.left, .5f)
+            assertEquals(beforeRelease.top, afterRelease.top, .5f)
+            assertEquals(beforeRelease.right, afterRelease.right, .5f)
+            assertEquals(beforeRelease.bottom, afterRelease.bottom, .5f)
+            output.recycle()
+            photo.recycle()
+        }
+    }
+
     @Test fun shorterTranslationKeepsTheSourceLetterSizeWhenSpaceIsAvailable() {
         instrumentation.runOnMainSync {
             val photo = Bitmap.createBitmap(1000, 700, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.LTGRAY) }

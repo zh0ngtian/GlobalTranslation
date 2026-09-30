@@ -29,8 +29,8 @@ android {
         applicationId = "io.github.zh0ngtian.globaltranslation"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "2.11"
+        versionCode = 14
+        versionName = "2.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {

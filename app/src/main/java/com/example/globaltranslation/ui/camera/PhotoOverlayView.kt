@@ -50,6 +50,7 @@ class PhotoOverlayView(context: Context) : View(context) {
     private var panY = 0f
     private var lastX = 0f
     private var lastY = 0f
+    private var panPointerId = MotionEvent.INVALID_POINTER_ID
     private var moved = false
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -297,28 +298,61 @@ class PhotoOverlayView(context: Context) : View(context) {
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                panPointerId = event.getPointerId(0)
                 lastX = event.x; lastY = event.y; moved = false
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (!scaleDetector.isInProgress && event.pointerCount == 1) {
-                    val dx = event.x - lastX; val dy = event.y - lastY
+                    val pointerIndex = event.findPointerIndex(panPointerId)
+                    if (pointerIndex < 0) {
+                        panPointerId = event.getPointerId(0)
+                        lastX = event.x
+                        lastY = event.y
+                        return true
+                    }
+                    val x = event.getX(pointerIndex)
+                    val y = event.getY(pointerIndex)
+                    val dx = x - lastX; val dy = y - lastY
                     if (moved || kotlin.math.abs(dx) + kotlin.math.abs(dy) > touchSlop) {
                         moved = true
                         if (zoom > 1f) { panX += dx; panY += dy; constrainPan(); invalidate() }
                     }
+                    lastX = x; lastY = y
                 }
-                lastX = event.x; lastY = event.y
                 return true
             }
-            MotionEvent.ACTION_POINTER_DOWN -> { moved = true; return true }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                moved = true
+                panPointerId = MotionEvent.INVALID_POINTER_ID
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                moved = true
+                val lifted = event.actionIndex
+                val remaining = (0 until event.pointerCount).firstOrNull { it != lifted }
+                if (remaining == null) {
+                    panPointerId = MotionEvent.INVALID_POINTER_ID
+                } else {
+                    panPointerId = event.getPointerId(remaining)
+                    lastX = event.getX(remaining)
+                    lastY = event.getY(remaining)
+                }
+                return true
+            }
             MotionEvent.ACTION_UP -> {
+                panPointerId = MotionEvent.INVALID_POINTER_ID
                 parent?.requestDisallowInterceptTouchEvent(false)
                 if (!moved && !originalVisible) blocks.getOrNull(hitIndex(event.x, event.y))?.let { performClick(); click(it) }
                 return true
             }
-            MotionEvent.ACTION_CANCEL -> { moved = true; parent?.requestDisallowInterceptTouchEvent(false); return true }
+            MotionEvent.ACTION_CANCEL -> {
+                moved = true
+                panPointerId = MotionEvent.INVALID_POINTER_ID
+                parent?.requestDisallowInterceptTouchEvent(false)
+                return true
+            }
         }
         return true
     }

@@ -277,3 +277,12 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 25 项 JVM 测试、Lint、Debug／Release 构建通过。2.11 Release 已在 HONOR Android 12 真机安装并冷启动，正常取景两秒内 `GT.Camera` 无警告或错误。
 - 2.11（versionCode 13）使用同一专用发布证书，`apksigner` v2 校验通过。APK 为 49,854,796 字节，SHA-256 为 `1ae6978b63a4b8b5156c3cd30b7a0c998fb8e03e58cfab155d59d01b3dae099a`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/38baffad69d05bb88ea8d450ef436a65/GlobalTranslation-2.11-test.apk`，到期时间为 2026-10-02 23:01:25（Asia/Shanghai）。
+
+## 2.12：修复结果页缩放松手跳动（2026-09-30）
+
+结果页原先在双指缩放期间持续把第一个触点的位置保存为单指拖动基准。如果先抬起第一个触点，Android 会把剩余触点重新排为第一个，下一次移动因此被误判为一次大幅拖动。现在使用稳定的 pointer ID 跟踪拖动触点；进入双指缩放时暂停单指基准，任意触点抬起时把基准和当前位置一起交接给仍按住的触点，后续真实移动才会平移照片。
+
+- 新增真机手势回归：放大照片后先抬起 pointer 0，让 pointer 1 保持原坐标并继续发送单指事件；松手前后的译文边界四边误差均不超过 0.5 像素。
+- 25 项 JVM 测试、Lint、Debug／Release 构建通过。HONOR Android 12 完整真机套件运行 22 个测试事件，19 个入口中 16 项通过、3 项按私有输入或真实 Key 条件跳过，0 项失败。
+- 2.12（versionCode 14）使用同一专用发布证书，`apksigner` v2 校验通过；已在真机安装并冷启动，设备查询确认版本为 2.12。APK 为 49,854,796 字节，SHA-256 为 `f390e16200b23eca2a68df1ef99293d4ba564b30ca6ec0c76b366325bacd7892`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/e2f468c1f4e1b7a9746b4d6525594d10/GlobalTranslation-2.12-test.apk`，到期时间为 2026-10-02 23:32:55（Asia/Shanghai）。
