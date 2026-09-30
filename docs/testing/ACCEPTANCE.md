@@ -268,3 +268,12 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - HONOR Android 12 真机相机用例通过，覆盖正常取景无“相机错误”、点按对焦、双指缩放、拍照、设置往返和横竖屏切换。最终 Release 冷启动成功；正常取景两秒后 `adb logcat -d -s 'GT.Camera:V' '*:S'` 没有警告或错误。
 - 2.10（versionCode 12）使用同一专用发布证书，`apksigner` v2 校验通过。APK 为 49,854,796 字节，SHA-256 为 `7dd4d4ceff26f9cab0d6e55b3cdf6923032446822e42532fc5896281a0d504d0`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/d75cc9d582e7abd415d4abf652fb9909/GlobalTranslation-2.10-test.apk`，到期时间为 2026-10-02 22:41:13（Asia/Shanghai）。
+
+## 2.11：移除应用主动调用物理长焦（2026-09-30）
+
+删除物理镜头枚举、物理相机 ID 选择、长焦阈值、回切迟滞和重新绑定镜头的全部逻辑。应用只绑定一次 CameraX `DEFAULT_BACK_CAMERA`，双指缩放直接使用该相机公开的 `ZoomState` 与 `setZoomRatio`；倍率提示只显示数字，不再显示长焦状态。设备默认相机管线内部如何实现缩放由厂商决定，应用不再主动选择物理长焦。
+
+- 源码检查确认生产代码不再包含 `physicalCameraInfos`、`setPhysicalCameraId` 或物理镜头模型。真机用例确认双指缩放后只显示“相机缩放”，不存在“已切换长焦”，点按对焦、拍照、设置往返及横竖屏切换继续通过。
+- 25 项 JVM 测试、Lint、Debug／Release 构建通过。2.11 Release 已在 HONOR Android 12 真机安装并冷启动，正常取景两秒内 `GT.Camera` 无警告或错误。
+- 2.11（versionCode 13）使用同一专用发布证书，`apksigner` v2 校验通过。APK 为 49,854,796 字节，SHA-256 为 `1ae6978b63a4b8b5156c3cd30b7a0c998fb8e03e58cfab155d59d01b3dae099a`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/38baffad69d05bb88ea8d450ef436a65/GlobalTranslation-2.11-test.apk`，到期时间为 2026-10-02 23:01:25（Asia/Shanghai）。

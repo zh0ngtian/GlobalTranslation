@@ -38,16 +38,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 private data class FocusMarker(val point: Offset, val request: Long, val status: String)
-private data class PhysicalLens(val id: String, val intrinsicZoomRatio: Float)
 private data class ZoomStatus(
     val ratio: Float = 1f,
     val minRatio: Float = 1f,
     val maxRatio: Float = 1f,
-    val physicalLens: PhysicalLens? = null,
 )
 
-private const val TELEPHOTO_MIN_RATIO = 1.5f
-private const val LENS_SWITCH_BACK_HYSTERESIS = 0.85f
 private const val CAMERA_LOG_TAG = "GT.Camera"
 
 @Composable
@@ -112,10 +108,6 @@ fun CameraPreview(
         val mainExecutor = ContextCompat.getMainExecutor(context)
         val future = ProcessCameraProvider.getInstance(context)
         var provider: ProcessCameraProvider? = null
-        var telephotoLenses = emptyList<PhysicalLens>()
-        var activePhysicalLens: PhysicalLens? = null
-        var defaultMinZoom = 1f
-        var defaultMaxZoom = 1f
         var lastBindFailure: Throwable? = null
         val preview = Preview.Builder().build().apply { setSurfaceProvider(previewView.surfaceProvider) }
 
@@ -129,16 +121,7 @@ fun CameraPreview(
             cameraNotice("相机提示 $code：$message")
         }
 
-        fun selectorFor(lens: PhysicalLens?): CameraSelector = if (lens == null) {
-            CameraSelector.DEFAULT_BACK_CAMERA
-        } else {
-            CameraSelector.Builder()
-                .requireLensFacing(CameraSelector.LENS_FACING_BACK)
-                .setPhysicalCameraId(lens.id)
-                .build()
-        }
-
-        fun bindCamera(lens: PhysicalLens?, desiredGlobalZoom: Float): Boolean {
+        fun bindCamera(desiredZoom: Float): Boolean {
             val currentProvider = provider ?: return false
             return try {
                 ready(null)
@@ -147,20 +130,23 @@ fun CameraPreview(
                 val viewPort = requireNotNull(previewView.viewPort)
                 val group = UseCaseGroup.Builder().setViewPort(viewPort)
                     .addUseCase(preview).addUseCase(imageCapture).build()
-                val rebound = currentProvider.bindToLifecycle(owner, selectorFor(lens), group)
+                val rebound = currentProvider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, group)
                 lastBindFailure = null
                 camera = rebound
-                activePhysicalLens = lens
-                val state = rebound.cameraInfo.zoomState.value
-                val intrinsic = lens?.intrinsicZoomRatio ?: 1f
-                val localZoom = (desiredGlobalZoom / intrinsic).coerceIn(
+                val state = runCatching { rebound.cameraInfo.zoomState.value }.getOrElse { failure ->
+                    reportNotice("CAM-101", "无法读取相机缩放范围，将暂时使用 1.0 倍。", failure)
+                    null
+                }
+                val appliedZoom = desiredZoom.coerceIn(
                     state?.minZoomRatio ?: 1f,
                     state?.maxZoomRatio ?: 1f,
                 )
-                rebound.cameraControl.setZoomRatio(localZoom)
-                val globalMin = if (lens == null) state?.minZoomRatio ?: defaultMinZoom else defaultMinZoom
-                val globalMax = maxOf(defaultMaxZoom, intrinsic * (state?.maxZoomRatio ?: 1f))
-                zoomStatus = ZoomStatus(desiredGlobalZoom.coerceIn(globalMin, globalMax), globalMin, globalMax, lens)
+                rebound.cameraControl.setZoomRatio(appliedZoom)
+                zoomStatus = ZoomStatus(
+                    ratio = appliedZoom,
+                    minRatio = state?.minZoomRatio ?: 1f,
+                    maxRatio = state?.maxZoomRatio ?: 1f,
+                )
                 ready { token ->
                     imageCapture.targetRotation = previewView.display?.rotation ?: android.view.Surface.ROTATION_0
                     imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
@@ -186,20 +172,11 @@ fun CameraPreview(
                 lastBindFailure = failure
                 Log.e(
                     CAMERA_LOG_TAG,
-                    "[CAM-BIND] Failed to bind ${lens?.let { "physical lens ${it.id}" } ?: "logical back camera"}",
+                    "[CAM-BIND] Failed to bind default back camera",
                     failure,
                 )
                 false
             }
-        }
-
-        fun lensForZoom(target: Float): PhysicalLens? {
-            val current = activePhysicalLens
-            if (current != null && target < current.intrinsicZoomRatio &&
-                target >= current.intrinsicZoomRatio * LENS_SWITCH_BACK_HYSTERESIS) {
-                return current
-            }
-            return telephotoLenses.lastOrNull { it.intrinsicZoomRatio <= target }
         }
 
         fun changeZoom(scaleFactor: Float) {
@@ -208,40 +185,8 @@ fun CameraPreview(
             val state = current.cameraInfo.zoomState.value ?: return
             val target = (zoomStatus.ratio * scaleFactor)
                 .coerceIn(zoomStatus.minRatio, zoomStatus.maxRatio)
-            val desiredLens = lensForZoom(target)
-            if (desiredLens != activePhysicalLens) {
-                val previousLens = activePhysicalLens
-                if (!bindCamera(desiredLens, target)) {
-                    val switchFailure = lastBindFailure
-                    if (desiredLens != null) telephotoLenses = telephotoLenses.filterNot { it == desiredLens }
-                    val fallbackLens = if (desiredLens != null) null else previousLens
-                    val fallbackZoom = maxOf(target, fallbackLens?.intrinsicZoomRatio ?: target)
-                    if (!bindCamera(fallbackLens, fallbackZoom)) {
-                        reportError(
-                            "CAM-004",
-                            "镜头切换失败，并且无法恢复之前的取景；请返回后重试或重新打开应用。",
-                            lastBindFailure ?: switchFailure,
-                        )
-                    } else if (desiredLens != null) {
-                        reportNotice(
-                            "CAM-102",
-                            "此设备不允许当前拍照模式调用该长焦镜头，已恢复普通相机缩放。",
-                            switchFailure,
-                        )
-                    } else {
-                        reportNotice(
-                            "CAM-103",
-                            "暂时无法切回普通镜头，当前继续使用长焦；缩小后可再次尝试。",
-                            switchFailure,
-                        )
-                    }
-                }
-                return
-            }
-            val intrinsic = activePhysicalLens?.intrinsicZoomRatio ?: 1f
-            val localTarget = (target / intrinsic).coerceIn(state.minZoomRatio, state.maxZoomRatio)
-            current.cameraControl.setZoomRatio(localTarget)
-            zoomStatus = zoomStatus.copy(ratio = target, physicalLens = activePhysicalLens)
+            current.cameraControl.setZoomRatio(target.coerceIn(state.minZoomRatio, state.maxZoomRatio))
+            zoomStatus = zoomStatus.copy(ratio = target)
         }
         zoomHandler = ::changeZoom
 
@@ -290,7 +235,7 @@ fun CameraPreview(
                         reportError("CAM-002", "相机取景区域尚未准备好；请返回后重试。", null)
                         return@doOnLayout
                     }
-                    if (!bindCamera(null, 1f)) {
+                    if (!bindCamera(1f)) {
                         reportError(
                             "CAM-003",
                             "无法连接后置相机；请检查相机权限，并确认其他应用没有占用摄像头。",
@@ -299,39 +244,6 @@ fun CameraPreview(
                         return@doOnLayout
                     }
 
-                    val defaultInfo = requireNotNull(camera).cameraInfo
-                    val initialZoom = runCatching { defaultInfo.zoomState.value }.getOrElse { failure ->
-                        reportNotice("CAM-101", "无法读取相机缩放范围，将暂时使用 1.0 倍。", failure)
-                        null
-                    }
-                    defaultMinZoom = initialZoom?.minZoomRatio ?: 1f
-                    defaultMaxZoom = initialZoom?.maxZoomRatio ?: 1f
-                    telephotoLenses = try {
-                        if (defaultInfo.isLogicalMultiCameraSupported) {
-                            defaultInfo.physicalCameraInfos.mapNotNull { info ->
-                                val id = info.cameraSelector.physicalCameraId ?: return@mapNotNull null
-                                val ratio = info.intrinsicZoomRatio
-                                if (ratio >= TELEPHOTO_MIN_RATIO) PhysicalLens(id, ratio) else null
-                            }.distinctBy { it.id }.sortedBy { it.intrinsicZoomRatio }
-                        } else {
-                            emptyList()
-                        }
-                    } catch (failure: Exception) {
-                        reportNotice(
-                            "CAM-104",
-                            "相机已经打开，但无法读取物理长焦信息；将继续使用普通相机缩放。",
-                            failure,
-                        )
-                        emptyList()
-                    }
-                    zoomStatus = ZoomStatus(
-                        ratio = initialZoom?.zoomRatio ?: 1f,
-                        minRatio = defaultMinZoom,
-                        maxRatio = maxOf(
-                            defaultMaxZoom,
-                            telephotoLenses.maxOfOrNull { it.intrinsicZoomRatio } ?: 1f,
-                        ),
-                    )
                 }
             }
         }, mainExecutor)
@@ -371,9 +283,8 @@ fun CameraPreview(
             },
         )
         if (zoomStatus.ratio !in 0.98f..1.02f) {
-            val usingTelephoto = zoomStatus.physicalLens != null
             Text(
-                text = "%.1f×%s".format(zoomStatus.ratio, if (usingTelephoto) " · 长焦" else ""),
+                text = "%.1f×".format(zoomStatus.ratio),
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -381,7 +292,7 @@ fun CameraPreview(
                     .background(Color.Black.copy(alpha = .62f), RoundedCornerShape(18.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .testTag("camera_zoom")
-                    .semantics { contentDescription = if (usingTelephoto) "已切换长焦" else "相机缩放" },
+                    .semantics { contentDescription = "相机缩放" },
             )
         }
         marker?.let { focus ->

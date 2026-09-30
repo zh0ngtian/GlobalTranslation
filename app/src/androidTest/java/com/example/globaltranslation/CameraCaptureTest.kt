@@ -56,6 +56,8 @@ class CameraCaptureTest {
             "Pinch did not change zoom: before=$zoomBefore, after=$zoomAfter",
             compose.onAllNodesWithTag("camera_zoom").fetchSemanticsNodes().isNotEmpty(),
         )
+        compose.onNodeWithTag("camera_zoom").assertContentDescriptionEquals("相机缩放")
+        compose.onAllNodes(hasContentDescription("已切换长焦")).assertCountEquals(0)
         compose.onAllNodes(hasText("相机错误", substring = true)).assertCountEquals(0)
         compose.onNodeWithTag("capture").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("photo_overlay").fetchSemanticsNodes().isNotEmpty() }
