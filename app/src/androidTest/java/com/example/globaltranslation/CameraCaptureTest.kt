@@ -2,6 +2,7 @@ package com.example.globaltranslation
 
 import android.Manifest
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.geometry.Offset
 import android.graphics.Bitmap
 import java.io.File
 import android.content.pm.ActivityInfo
@@ -25,7 +26,7 @@ class CameraCaptureTest {
         val preview = compose.onNodeWithTag("camera_preview").fetchSemanticsNode().boundsInRoot
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
         org.junit.Assert.assertTrue(preview.height >= root.height * .95f)
-        compose.onNodeWithTag("camera_preview").performTouchInput { click(center) }
+        compose.onNodeWithTag("camera_gestures").performTouchInput { click(center) }
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("focus_indicator").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(10_000) {
             compose.onAllNodes(hasContentDescription("已对焦") or hasContentDescription("未能合焦，请重试")).fetchSemanticsNodes().isNotEmpty()
@@ -35,6 +36,25 @@ class CameraCaptureTest {
         compose.onRoot().captureToImage().asAndroidBitmap().let { bitmap ->
             File(compose.activity.cacheDir, "camera-fullscreen.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
+        val zoomBefore = compose.onNodeWithTag("camera_preview").fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription].joinToString()
+        File(compose.activity.cacheDir, "camera-zoom.txt").writeText("before=$zoomBefore")
+        compose.onNodeWithTag("camera_gestures").performTouchInput {
+            pinch(
+                start0 = center + Offset(-50f, 0f),
+                end0 = center + Offset(-180f, 0f),
+                start1 = center + Offset(50f, 0f),
+                end1 = center + Offset(180f, 0f),
+                durationMillis = 500L,
+            )
+        }
+        val zoomAfter = compose.onNodeWithTag("camera_preview").fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription].joinToString()
+        File(compose.activity.cacheDir, "camera-zoom.txt").appendText("\nafter=$zoomAfter")
+        org.junit.Assert.assertTrue(
+            "Pinch did not change zoom: before=$zoomBefore, after=$zoomAfter",
+            compose.onAllNodesWithTag("camera_zoom").fetchSemanticsNodes().isNotEmpty(),
+        )
         compose.onNodeWithTag("capture").performClick()
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("photo_overlay").fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle {

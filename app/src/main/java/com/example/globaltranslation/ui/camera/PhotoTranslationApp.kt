@@ -186,7 +186,7 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                         state.isResultStale -> "尚未应用更改，请点击下方按钮。"
                         photo != null && state.blocks.isNotEmpty() -> "已返回 ${state.translations.size}/${state.blocks.size} 段 · 点按核对原文；红框未完成"
                         photo != null -> "可旋转照片后重新识别"
-                        else -> "点按画面对焦 · 对准清晰印刷文字"
+                        else -> "点按对焦 · 双指缩放 · 对准清晰印刷文字"
                     }, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(12.dp))
                     if (photo != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),

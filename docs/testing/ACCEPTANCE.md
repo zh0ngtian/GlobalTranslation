@@ -47,7 +47,7 @@ python3 scripts/test-real-api.py
 脚本交互式隐藏输入 Key，经 stdin 送入 App 私有 `no_backup` 目录；Key 不出现在命令参数、仓库或报告中。测试读取后立即删除手机上的临时文件，脚本 finally 再次清理。测试只生成无敏感信息的样张结果：
 
 ```bash
-adb exec-out run-as com.example.globaltranslation cat cache/real-api-acceptance.txt
+adb exec-out run-as io.github.zh0ngtian.globaltranslation cat cache/real-api-acceptance.txt
 ```
 
 ## 限制与交付边界
@@ -117,7 +117,7 @@ adb exec-out run-as com.example.globaltranslation cat cache/real-api-acceptance.
 - `phase=api`：通过 stdin 注入 `no_backup/acceptance-api-key` 后运行；测试读取后立即删除临时 Key，调用现有生产翻译器。
 - `phase=replay`：每个输入旁放置此前的 `<id>-result.json`，验证 OCR ID 与原文一致后回放译文，不调用 API。
 
-入口：`adb shell am instrument -w -e phase replay -e class com.example.globaltranslation.PhotoBatchTest com.example.globaltranslation.test/androidx.test.runner.AndroidJUnitRunner`。导出 `cache/photo-batch/` 中的 JSON、PNG、`failures.json` 后清理手机上的注入文件与缓存。测试源码只包含通用入口，不包含私有照片内容或 Key。
+入口：`adb shell am instrument -w -e phase replay -e class com.example.globaltranslation.PhotoBatchTest io.github.zh0ngtian.globaltranslation.test/androidx.test.runner.AndroidJUnitRunner`。导出 `cache/photo-batch/` 中的 JSON、PNG、`failures.json` 后清理手机上的注入文件与缓存。测试源码只包含通用入口，不包含私有照片内容或 Key。
 
 ## 2.1：从相册选择图片（2026-09-29）
 
@@ -212,6 +212,15 @@ adb exec-out run-as com.example.globaltranslation cat cache/real-api-acceptance.
 
 最终门禁：24 项 JVM 测试通过，完整 lint 无错误，Debug／Release 构建通过；固定真机套件 17 个入口中 14 项通过、3 项按私有输入条件跳过。加上本次原图批量入口，共验证 15 个不同设备用例。四栏合成样张在 960×1280 和 2880×3840 两种尺寸均保留全部行标识且不混栏。查看整页截图时仍有个别段落字号偏小，需要放大；本次没有宣称整页的阅读体验已经完善。2.5（versionCode 7）签名校验通过，已在真机安装并冷启动成功；临时 Key、原图和缓存译文已从手机清理。
 
+## 本机 APK 临时文件服务（2026-09-30）
+
+- 新增 `scripts/apk-server.py`，通过 macOS launchd 后台运行，局域网端口为 8765；上传和下载无需令牌，单文件上限 100 MiB，有效期 48 小时。操作方式见 `AGENTS.md` 第七节。
+- 使用现有 2.5（versionCode 7）测试签名 Release 验证交付，APK 对应提交为 `36e48af72b1f50a321e28d54633043fa612cc296`，大小 49,876,795 字节。重新通过 apksigner 签名校验；本次未改 App、未重新编译或增加版本号。
+- 经本机局域网 IP 完成免令牌上传及 GET／HEAD 下载，APK 类型、长度与 SHA-256 均一致；首页包含下载链接及到期时间。重复同名上传生成独立链接。
+- 验证无效 APK、非法路径、空文件、超限长度被拒绝，仓库文件不能通过 HTTP 读取；将临时测试记录设为过期后，下载返回 404 且对应文件被清理。测试夹具已删除。
+- 验证后台服务启动、停止及重启。此次 HTTP 验证从 Mac 发起，未另用手机验证局域网访问或网页上传交互；此前 APK 真机安装结论见上节。
+- 实际下载链接、到期时间与校验结果保存在忽略目录 `app/build/reports/local-apk-upload.json` 和 `app/build/reports/local-apk-verification.json`。
+
 ## 2.6：译文字号匹配原文字号（2026-09-30）
 
 此前覆盖排版把首选字号同时限制为原文行高和“照片宽度 ÷ 40”中的较小值。该上限适合密集小字，却会把告示牌上的大号原文错误压成细小译文。现在首选字号直接取 OCR 文字块的原文行高；现有完整布局检测仍会在译文较长或空间不足时逐级缩小，保持不越界、不省略。
@@ -229,3 +238,16 @@ adb exec-out run-as com.example.globaltranslation cat cache/real-api-acceptance.
 - Compose 真机用例验证两项耗时位于按钮右侧、设置按钮仍可见，旋转后旧耗时和译文一起清空，重新识别并翻译后恢复显示。状态单元测试覆盖首次处理、复用 OCR、切换文字体系、超时和重置。
 - 使用用户提供的 1859 样张执行真实 ML Kit 和 DeepSeek 请求：OCR 为 206 ms，翻译为 1170 ms，页面显示为“`OCR：206 ms`”和“`翻译：1.17 秒`”；1/1 文字块、33/33 译文字符仍完整绘制。
 - 最终门禁：25 项 JVM 测试（core 8、data 8、app 9）通过，完整 lint 无错误，Debug／Release 构建通过；固定真机套件 18 个入口中 15 项通过、3 项按私有输入条件跳过，另行执行真实 API 私有回归通过。证据位于忽略目录 `app/build/reports/timing/`，用户照片、OCR、响应和截图不提交仓库。
+
+## 2.8：正式应用身份与取景缩放（2026-09-30）
+
+此前 2.6 和 2.7 都由 Android Debug 证书签名；对比旧外部服务和本机服务下载的文件后，APK 字节和签名没有被上传服务修改。Play Protect 提示与未知、未登记的侧载应用身份一致，不是本机 HTTP 服务重签名的结果。本版开始使用独立应用 ID `io.github.zh0ngtian.globaltranslation` 和专用 4096 位 RSA 发布密钥，源码 namespace 暂时保留 `com.example.globaltranslation`。发布证书 SHA-256 为 `E9:70:F0:1B:78:A2:AD:FF:66:23:9A:20:ED:58:5B:26:5E:90:0D:3A:47:A4:22:54:20:C3:75:81:46:3E:55:5D`；私钥被 Git 忽略，密码只保存在 macOS 登录钥匙串。
+
+Android Developer Console 的有限分发账号已创建；软件包名称显示“已注册”，上述证书显示“已验证”。目标 Google Play 设备尚未授权，控制台仍显示“添加您的第一部设备”；下一步须生成授权码并由该手机确认。因此，本次只能确认 APK 身份、签名和登记内容一致，尚不能宣称用户手机上的 Play Protect 提示已经消失。
+
+相机取景新增双指连续缩放和倍率提示。缩放范围来自 CameraX `ZoomState`；后置逻辑多摄公开物理镜头时，根据 `intrinsicZoomRatio` 选择不超过当前倍率的最近长焦，并将全局倍率换算为该物理镜头的本地倍率。缩小时低于镜头固有倍率的 85% 才回切，避免临界值来回跳转；厂商虽然公开镜头但拒绝当前 Preview／ImageCapture 组合时，该镜头在本次会话中停用并恢复逻辑相机缩放。点按对焦和双指缩放统一由取景画面上的 Compose 手势层处理，仍使用 PreviewView 坐标做 AF／AE。
+
+- HONOR Android 12 真机报告缩放范围为 1.0×–8.0×。专项用例执行双指拉开并确认倍率改变，随后完成点按对焦、拍照、设置往返及横竖屏切换；拍照裁切比例断言继续通过。该设备用例验证了缩放与拍摄链路，没有证明所有厂商都会向第三方应用开放物理长焦。
+- 25 项 JVM 测试、完整 lint、Debug／Release 构建通过；固定真机套件 18 个入口中 15 项通过、3 项按私有输入或真实 Key 条件跳过。Gradle 最终报告 21 个测试事件，其中包含跳过事件。
+- 2.8（versionCode 10）由专用发布证书签名，`apksigner` v2 校验通过，已在真机安装并冷启动成功。APK 为 49,854,800 字节，SHA-256 为 `d036b85f0380bbf27bc0aec8b58290abc2ab13b32358fd17888fb56afe2dbebd`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,800 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/a3830f552f98bfdc41a9f1490cbed0f3/GlobalTranslation-2.8-test.apk`，到期时间为 2026-10-02 21:00:10（Asia/Shanghai）。

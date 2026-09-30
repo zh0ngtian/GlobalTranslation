@@ -6,22 +6,51 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val releaseStoreFile = providers.environmentVariable("GT_RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("GT_RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("GT_RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("GT_RELEASE_KEY_PASSWORD").orNull
+val releaseSigningValues = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+check(hasReleaseSigning || releaseSigningValues.all { it.isNullOrBlank() }) {
+    "Release signing requires GT_RELEASE_STORE_FILE, GT_RELEASE_STORE_PASSWORD, " +
+        "GT_RELEASE_KEY_ALIAS, and GT_RELEASE_KEY_PASSWORD together."
+}
+
 android {
     namespace = "com.example.globaltranslation"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.example.globaltranslation"
+        applicationId = "io.github.zh0ngtian.globaltranslation"
         minSdk = 29
         targetSdk = 36
-        versionCode = 9
-        versionName = "2.7"
+        versionCode = 10
+        versionName = "2.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
     }
     buildTypes {
         debug { isMinifyEnabled = false }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

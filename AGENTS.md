@@ -17,6 +17,7 @@
 - 基于现有 Android 项目开发，保留 Kotlin、Jetpack Compose、CameraX 和 ML Kit OCR 的基础能力。
 - 打开 App 默认进入全屏相机，取景铺满屏幕；首页只保留设置、相册、快门等必要操作。原文文字体系、目标语言、Prompt 选择、补光、Key 和模板管理统一放在二级设置页。
 - 点按取景画面执行对焦和测光并显示对焦框。使用 PreviewView 的坐标转换，适配全屏裁切及旋转；预览和捕获共享 ViewPort，捕获后应用实际裁切范围。离开相机时取消对焦并关闭补光。
+- 取景画面支持双指连续缩放，倍率限制在 CameraX 报告的范围内并显示当前倍率。后置逻辑多摄相机公开物理长焦时，达到对应镜头的固有倍率后切换到最接近的长焦镜头，缩小时使用 15% 回切迟滞以避免反复跳镜；设备不公开长焦或物理镜头无法绑定当前 Preview／ImageCapture 组合时继续使用逻辑相机缩放，不得因此中断拍照。
 - 结果页给照片独立区域，操作按钮不遮住译文；修改设置返回后仍须手动重新翻译。
 - 结果页提供“查看原图／查看译文”切换按钮。切换保留当前缩放、拖动位置和译文，不重新 OCR 或调用 API；查看原图时隐藏译文、底色及失败框，不弹出译文详情。
 - 每次翻译返回结果后，在“查看原图／查看译文”按钮右侧分别显示本次 OCR 用时和翻译用时。使用单调时钟分别统计本地识别与完整 DeepSeek 调用阶段，不把拍照或相册解码计入；复用既有 OCR 的重新翻译保留该照片的 OCR 用时并更新翻译用时，换图、旋转或重置时清空旧耗时。
@@ -118,6 +119,7 @@
 ## 三、项目实施要求
 
 - 保持现有 `:app`、`:core`、`:data` 分层：界面与状态在 `:app`，模型及接口在 `:core`，OCR、网络及存储实现在 `:data`。
+- 对外安装包的 Android application ID 固定为 `io.github.zh0ngtian.globaltranslation`；源码 namespace 暂时保留 `com.example.globaltranslation`，不要把两者混为一谈。此前 `com.example.globaltranslation` 测试包与正式身份不兼容，迁移后不再交付。
 - 使用现有 Hilt 注入和 Gradle Version Catalog 管理依赖；构建版本及平台要求以仓库实际配置为准。
 - 移除相机链路中“原文或目标必须有一方为英语”的现有代码限制。
 - 将翻译服务与离线模型管理解耦，不使用虚假的“离线模型已下载”状态兼容 DeepSeek。
@@ -148,14 +150,45 @@
 - JDK 21；Java/Kotlin 目标 17；Android min 29、compile/target 36。SDK 通过本地 `local.properties` 或 `ANDROID_HOME` 配置，不提交绝对机器路径。
 - 本地门禁：`./gradlew :core:test :data:testDebugUnitTest :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease`。
 - 设备门禁：`./gradlew :app:connectedDebugAndroidTest`，需要亮屏、解锁设备。真实 API 测试默认跳过，私密注入方式见验收记录。
+- 可分发 Release 使用 `scripts/build-signed-release.sh` 构建。普通 `assembleRelease` 在未提供四个 `GT_RELEASE_*` 环境变量时只生成未签名验证产物，不得交付。
 - 图片文字保留原文位置并随双指缩放同步变大，可拖动或点按全文；不得因旧的 12sp 屏幕下限将短译文替换成圆点。
 - 源码及配置以 `main` 为当前交付分支，`origin` 为用户 fork，`upstream` 为原作者仓库；实际远端提交以 Git 查询为准。
 
 ## 七、每个版本的安装包交付
 
-- 用户已明确要求：以后每次交付新的 App 版本，都必须打包可安装的 APK，并上传到 `https://tmpfiles.org` 供用户下载安装。这是持续授权的版本交付步骤，无需每次重新询问是否打包或上传。
-- 先完成该版本相关测试与构建，更新版本标识，再生成已签名 APK。优先使用体积较小的 Release 构建；当前测试交付可使用现有本地 Android 测试签名，保持签名一致以支持覆盖安装，并明确标注为测试版。不得交付未签名 APK，不得将签名私钥、API Key 或私有测试照片打入安装包。
+- 用户已明确要求：以后每次交付新的 App 版本，都必须打包可安装的 APK，并上传到本机临时文件服务供用户下载安装。2026-09-30 起，本机服务取代 `tmpfiles.org` 作为默认交付方式；上传和下载均无需令牌。这是持续授权的版本交付步骤，无需每次重新询问是否打包或上传。
+- 先完成该版本相关测试与构建，更新版本标识，再生成已签名 APK。优先使用体积较小的 Release 构建。所有可下载版本必须使用 `globaltranslation` 专用正式签名；禁止继续使用 `Android Debug` 证书，也不得交付未签名 APK。签名私钥、密码、API Key 和私有测试照片不得打入安装包或提交仓库。
+- 私钥位于被 Git 忽略的 `keystore/globaltranslation-release.jks`，随机密码保存在 macOS 登录钥匙串的 `GlobalTranslation Android Release`／`zh0ngtian` 条目中；公开证书为 `keystore/globaltranslation-release-cert.pem`。丢失私钥会失去后续兼容更新能力，须由用户另行保存独立备份。
+- Android Developer Console 登记的包名和证书必须与 APK 一致。登记或签名发生变化时，先完成安装兼容性和 Play Protect 实机验证，不得仅以 `apksigner` 通过作为无拦截结论。
 - 上传前校验 APK 签名；有设备时验证安装和启动。记录版本号、对应提交、文件大小及 SHA-256，确保上传的是本次交付的构建。
-- 使用临时服务接口 `POST https://tmpfiles.org/api/v1/upload`，以 multipart 字段 `file` 上传 APK，设置 `expire=172800`（48 小时）。当前单文件上限为 100 MB；服务限制如有变化，先核实再调整，不静默省略上传步骤。
-- 每次上传会生成新的临时下载页面，不复用此前已过期的链接。上传后检查下载入口可访问、返回 APK 类型且大小与本地一致，并核实页面显示的有效期。
+- 本机服务使用 `PUT /upload/<文件名.apk>` 接收 APK 原始二进制，单文件上限 100 MiB，上传后保留 48 小时。同名文件再次上传会生成独立链接；不得复用过期链接。
+- 上传后检查下载入口可访问、返回 APK 类型且大小与本地一致，并核对下载文件 SHA-256 和页面显示的有效期。服务只检查 APK 容器包含 AndroidManifest.xml，不能代替上传前的签名校验。
 - 最终交付必须包含下载链接、版本号、文件大小、有效期和必要的安装说明。临时链接及哈希可记录在忽略目录 `app/build/reports/`；上传失败时明确报告原因，不把打包完成当作下载交付完成。只修改文档而未发布新 App 版本时，无需重复打包上传。
+
+### 本机临时文件服务的使用
+
+- 实现入口：`scripts/apk-server.py`；使用 Python 3.9+ 标准库和 macOS `launchd`，无需安装第三方依赖。
+- 当前局域网地址：`http://192.168.123.79:8765/`；本机检查地址：`http://127.0.0.1:8765/`。手机与 Mac 连接同一局域网，在网页上选择 APK 上传或点击安装包下载，均无需令牌。
+- Mac 须保持开机、唤醒和联网。服务通过 `launchd` 后台运行，关闭终端不影响；未设置开机或登录自启，重启或重新登录后按下列命令启动。没有配置公网映射。
+- 服务监听 IPv4 `0.0.0.0:8765`。IP 变化时用 `/sbin/ifconfig en0` 检查，先 `stop`，再以新的 `--base-url` 启动；后续上传会返回新地址。旧文件的下载路径保持不变，可从新地址首页访问。
+- 所有命令从仓库根目录执行：
+
+```bash
+# 启动、检查和停止
+python3 scripts/apk-server.py start --base-url http://192.168.123.79:8765
+python3 scripts/apk-server.py status
+python3 scripts/apk-server.py stop
+
+# 上传已签名的安装包（先启动服务；替换为本次版本文件名）
+python3 scripts/apk-server.py upload app/build/outputs/apk/release/GlobalTranslation-2.5-test.apk
+
+# 也可从局域网其他机器用 HTTP 上传，不需要令牌或 multipart
+curl --fail-with-body --upload-file /path/to/GlobalTranslation-2.5-test.apk \
+  http://192.168.123.79:8765/upload/GlobalTranslation-2.5-test.apk
+```
+
+- 上传成功返回 JSON，包含 `url`（直链）、`bytes`、`sha256` 和带时区的 `expires_at`。文件名仅限英文字母、数字、点、横线、下划线，以字母或数字开头并以 `.apk` 结尾。
+- 健康检查：`GET /health`；首页：`GET /`；下载：`GET /files/<随机ID>/<文件名.apk>`，支持 `HEAD` 检查类型与大小。网页也支持选择文件并上传。
+- APK、到期信息、日志和 launchd 配置保存在仓库内 `.local-apk-server/`，已加入 `.gitignore`，独立于 Gradle 构建目录。不要将整个仓库、照片或签名目录作为 HTTP 文件根目录。
+- 文件到期立即拒绝下载；服务运行时每分钟及收到读取请求时清理过期文件。停止服务期间不执行清理，下次启动补清理。`stop` 保留未到期文件。
+- 日志：`.local-apk-server/server.log`。启动失败时检查日志及 `lsof -nP -iTCP:8765 -sTCP:LISTEN`；若 launchd 已注册但进程退出，先 `stop` 再 `start`。需要彻底清理时，先停止服务，再删除 `.local-apk-server/`。

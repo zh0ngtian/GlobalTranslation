@@ -30,4 +30,8 @@ keystore/*.p12
 keystore/*.keystore
 keystore/*-password.txt
 keystore/*.base64
+keystore/globaltranslation-release.jks
 nul  
+
+# Local temporary APK delivery (packages, launchd state and logs)
+/.local-apk-server/

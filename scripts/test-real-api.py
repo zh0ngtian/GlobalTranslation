@@ -15,7 +15,7 @@ if not adb:
 key = getpass.getpass("DeepSeek test API Key (hidden): ").strip()
 if not key or len(key) > 512 or any(not 33 <= ord(char) <= 126 for char in key):
     sys.exit("Invalid key format.")
-package = "com.example.globaltranslation"
+package = "io.github.zh0ngtian.globaltranslation"
 remote_file = "no_backup/acceptance-api-key"
 subprocess.run([adb, "shell", "run-as", package, "mkdir", "-p", "no_backup"], check=True)
 try:
