@@ -59,7 +59,9 @@ class CameraCaptureTest {
         compose.onNodeWithTag("camera_zoom").assertContentDescriptionEquals("相机缩放")
         compose.onAllNodes(hasContentDescription("已切换长焦")).assertCountEquals(0)
         compose.onAllNodes(hasText("相机错误", substring = true)).assertCountEquals(0)
-        compose.onNodeWithTag("capture").performClick()
+        compose.onNodeWithTag("capture").performTouchInput {
+            click(center + Offset(center.x * .75f, 0f))
+        }
         compose.waitUntil(30_000) { compose.onAllNodesWithTag("photo_overlay").fetchSemanticsNodes().isNotEmpty() }
         compose.runOnIdle {
             val vm = androidx.lifecycle.ViewModelProvider(compose.activity)[com.example.globaltranslation.ui.camera.CameraViewModel::class.java]

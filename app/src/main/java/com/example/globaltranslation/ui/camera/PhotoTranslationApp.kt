@@ -173,7 +173,17 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                         }) { Text("打开应用权限设置") }
                     }
                 }
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                val canCapture = photo == null && hasPermission && capture != null &&
+                    !state.isBusy && state.settingsLoaded
+                val bottomControlsModifier = if (photo == null) {
+                    Modifier.fillMaxWidth()
+                        .clickable(enabled = canCapture, role = androidx.compose.ui.semantics.Role.Button) {
+                            viewModel.beginCapture()?.let { capture?.invoke(it) }
+                        }
+                        .testTag("capture")
+                        .semantics { contentDescription = "拍照并翻译" }
+                } else Modifier.fillMaxWidth()
+                Column(bottomControlsModifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     if (state.isBusy) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -201,12 +211,8 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                             IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
                                 modifier = Modifier.size(56.dp).testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择", Modifier.size(28.dp)) }
                         }
-                        val canCapture = hasPermission && capture != null && !state.isBusy && state.settingsLoaded
                         Box(Modifier.size(76.dp).border(3.dp, Color.White.copy(alpha = if (canCapture) 1f else .35f), CircleShape)
-                            .padding(7.dp).clip(CircleShape).background(Color.White.copy(alpha = if (canCapture) 1f else .35f))
-                            .clickable(enabled = canCapture, role = androidx.compose.ui.semantics.Role.Button) {
-                                viewModel.beginCapture()?.let { capture?.invoke(it) }
-                            }.testTag("capture").semantics { contentDescription = "拍照并翻译" })
+                            .padding(7.dp).clip(CircleShape).background(Color.White.copy(alpha = if (canCapture) 1f else .35f)))
                         Spacer(Modifier.weight(1f))
                     }
                 }
