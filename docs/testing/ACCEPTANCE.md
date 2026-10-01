@@ -313,3 +313,12 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 真机点击贴底面板右侧空白坐标 `(850,1900)` 后成功拍照并进入结果页，设备查询确认 `versionCode=17`、`versionName=2.15`。
 - 2.15 对应功能提交为 `c19801118baeeda10682d91d540cf6abbe5e3245`。APK 使用同一专用发布证书，`apksigner` v2 校验通过，大小 49,854,796 字节，SHA-256 为 `50f21cf977e5eb9fd1ff7080ceeaf7f03c0bc4c7ab138a225f6312f4d7265d20`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/e0285cc92ada506733ff43312f9a446b/GlobalTranslation-2.15-test.apk`，到期时间为 2026-10-04 02:17:16（Asia/Shanghai）。
+
+## 2.16：用贯通横线替代面板倒角（2026-10-02）
+
+移除拍照面板的顶部圆角和四周描边，保留矩形半透明底色，在面板顶部单独绘制一条 1dp 横线。横线位于内容内边距之外，从屏幕最左侧连续延伸到最右侧；面板背景、整块拍照点击范围和内部底部安全区保持不变。
+
+- 完整本地门禁通过：25 项 JVM 测试、Lint、Debug／Release 构建均成功。HONOR Android 12 真机同证书覆盖安装并冷启动；截图检查确认不存在倒角，顶部横线左右贯通，底栏继续贴合屏幕底边。
+- 真机点击横线下方右侧空白坐标 `(850,1900)` 后成功拍照并进入结果页，设备查询确认 `versionCode=18`、`versionName=2.16`。
+- 2.16 对应功能提交为 `970be530be63a7bccb68710367ac50ed477948fc`。APK 使用同一专用发布证书，`apksigner` v2 校验通过，大小 49,854,796 字节，SHA-256 为 `01cbb76a048506b7a756f8823bd4b55e34fd5c6b2153937890de0d6f7f10853e`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/783a05b01e4e1ffa62649769ce07a164/GlobalTranslation-2.16-test.apk`，到期时间为 2026-10-04 02:24:07（Asia/Shanghai）。
