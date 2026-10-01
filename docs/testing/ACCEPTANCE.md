@@ -286,3 +286,12 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 25 项 JVM 测试、Lint、Debug／Release 构建通过。HONOR Android 12 完整真机套件运行 22 个测试事件，19 个入口中 16 项通过、3 项按私有输入或真实 Key 条件跳过，0 项失败。
 - 2.12（versionCode 14）使用同一专用发布证书，`apksigner` v2 校验通过；已在真机安装并冷启动，设备查询确认版本为 2.12。APK 为 49,854,796 字节，SHA-256 为 `f390e16200b23eca2a68df1ef99293d4ba564b30ca6ec0c76b366325bacd7892`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/e2f468c1f4e1b7a9746b4d6525594d10/GlobalTranslation-2.12-test.apk`，到期时间为 2026-10-02 23:32:55（Asia/Shanghai）。
+
+## 2.13：扩大拍照点击区域（2026-10-02）
+
+拍照页底部控制区改为一个全宽拍照按钮，提示文字、圆形快门和右侧等空白区都触发同一拍照动作；相册入口保留独立点击行为并优先处理自身触摸。相机未就绪、设置尚未载入或正在处理时，整块拍照区域统一禁用。相机真机回归同步改为点击底栏右侧空白区，不再只调用圆形快门的语义动作。
+
+- 完整本地门禁通过：25 项 JVM 测试、Lint、Debug／Release 构建均成功；更新后的 Android 真机测试源码也已编译通过。设备上已有正式签名版，因此 Debug 测试包被 Android 以签名不兼容拒绝覆盖，未卸载 App 或清除用户数据，也不把这次尝试记录为完整设备套件通过。
+- 2.13 Release 已在 HONOR Android 12 真机同证书覆盖安装并冷启动，设备查询确认 `versionCode=15`、`versionName=2.13`。界面节点显示底栏拍照按钮覆盖全宽 `[0,1800][984,2038]`；实际点击远离圆形快门和相册入口的右侧空白坐标 `(900,1900)` 后成功拍照并进入结果页。
+- 2.13 对应功能提交为 `d441f2571d964455158957e1d1bd605fe961e399`。APK 使用同一专用发布证书，`apksigner` v2 校验通过，大小 49,854,796 字节，SHA-256 为 `0ff1c0cf6ca3305f47fe6f94ab01ecbc7805326e822006208a3dc7a096382119`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/d391dd425704e82b49ec20b6a2344a99/GlobalTranslation-2.13-test.apk`，到期时间为 2026-10-04 01:29:53（Asia/Shanghai）。
