@@ -129,8 +129,10 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                 onCaptureError = viewModel::captureFailed,
                 onCameraError = viewModel::showError,
                 onCameraNotice = viewModel::showNotice)
-            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     if (photo != null) IconButton(onClick = choosePhoto, enabled = !state.isBusy && state.settingsLoaded,
                         modifier = Modifier.background(Color.Black.copy(alpha = .45f), CircleShape).testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择") }
@@ -176,7 +178,7 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                 val canCapture = photo == null && hasPermission && capture != null &&
                     !state.isBusy && state.settingsLoaded
                 val bottomControlsModifier = if (photo == null) {
-                    val capturePanelShape = RoundedCornerShape(24.dp)
+                    val capturePanelShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
                     Modifier.fillMaxWidth()
                         .clip(capturePanelShape)
                         .background(Color.Black.copy(alpha = .42f))
@@ -191,7 +193,9 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                         .testTag("capture")
                         .semantics { contentDescription = "拍照并翻译" }
                 } else Modifier.fillMaxWidth()
-                Column(bottomControlsModifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                Column(bottomControlsModifier
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     if (state.isBusy) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
