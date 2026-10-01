@@ -176,7 +176,15 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                 val canCapture = photo == null && hasPermission && capture != null &&
                     !state.isBusy && state.settingsLoaded
                 val bottomControlsModifier = if (photo == null) {
+                    val capturePanelShape = RoundedCornerShape(24.dp)
                     Modifier.fillMaxWidth()
+                        .clip(capturePanelShape)
+                        .background(Color.Black.copy(alpha = .42f))
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = if (canCapture) .55f else .22f),
+                            capturePanelShape,
+                        )
                         .clickable(enabled = canCapture, role = androidx.compose.ui.semantics.Role.Button) {
                             viewModel.beginCapture()?.let { capture?.invoke(it) }
                         }
@@ -191,12 +199,16 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                             Text(state.stage.label, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = viewModel::cancel) { Text("取消", color = Color.White) }
                         }
+                    } else if (photo == null) {
+                        Text("轻触此区域拍照", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold)
+                        Text("取景画面：点按对焦 · 双指缩放 · 对准清晰印刷文字",
+                            color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.bodySmall)
                     } else Text(when {
                         showOriginal -> "正在查看原图 · 双指缩放，拖动查看"
                         state.isResultStale -> "尚未应用更改，请点击下方按钮。"
-                        photo != null && state.blocks.isNotEmpty() -> "已返回 ${state.translations.size}/${state.blocks.size} 段 · 点按核对原文；红框未完成"
-                        photo != null -> "可旋转照片后重新识别"
-                        else -> "点按对焦 · 双指缩放 · 对准清晰印刷文字"
+                        state.blocks.isNotEmpty() -> "已返回 ${state.translations.size}/${state.blocks.size} 段 · 点按核对原文；红框未完成"
+                        else -> "可旋转照片后重新识别"
                     }, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(12.dp))
                     if (photo != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -212,7 +224,11 @@ private fun CameraContent(state: CameraUiState, viewModel: CameraViewModel, choo
                                 modifier = Modifier.size(56.dp).testTag("choose_photo")) { Icon(Icons.Default.PhotoLibrary, "从相册选择", Modifier.size(28.dp)) }
                         }
                         Box(Modifier.size(76.dp).border(3.dp, Color.White.copy(alpha = if (canCapture) 1f else .35f), CircleShape)
-                            .padding(7.dp).clip(CircleShape).background(Color.White.copy(alpha = if (canCapture) 1f else .35f)))
+                            .padding(7.dp).clip(CircleShape).background(Color.White.copy(alpha = if (canCapture) 1f else .35f)),
+                            contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.PhotoCamera, null, Modifier.size(30.dp),
+                                tint = Color.Black.copy(alpha = if (canCapture) .82f else .4f))
+                        }
                         Spacer(Modifier.weight(1f))
                     }
                 }
