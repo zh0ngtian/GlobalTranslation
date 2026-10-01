@@ -304,3 +304,12 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 真机实际点击拍照面板右侧空白坐标 `(850,1900)` 后成功拍照并进入结果页，确认新增背景和描边没有缩回点击范围；设备查询确认 `versionCode=16`、`versionName=2.14`。
 - 2.14 对应功能提交为 `b8226633bd0d44fafdd35d9fb0b006fb64ac8a11`。APK 使用同一专用发布证书，`apksigner` v2 校验通过，大小 49,854,796 字节，SHA-256 为 `f701ec09e3fd7b0315ccaaec38ee86bc0fe39caf186bceda64dbea2c8cd70969`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致；首页显示相同文件与有效期。局域网下载地址为 `http://192.168.123.79:8765/files/0eeede39ab3bca49509985e5a7213b26/GlobalTranslation-2.14-test.apk`，到期时间为 2026-10-04 02:06:45（Asia/Shanghai）。
+
+## 2.15：拍照面板贴合屏幕圆角（2026-10-02）
+
+移除页面级底部安全区对整块拍照面板的上托，面板背景和点击区域延伸到屏幕最底边；面板只保留顶部 24dp 圆角，底角交给设备实体屏幕裁切。底部安全区改为仅给面板内部文案、相册和快门增加留白，因此内容不进入系统手势区域，同时不再出现悬浮卡片式底部缝隙。顶部工具栏单独应用顶部及横向安全区，继续避开状态栏和挖孔。
+
+- 完整本地门禁通过：25 项 JVM 测试、Lint、Debug／Release 构建均成功。HONOR Android 12 真机同证书覆盖安装并冷启动；截图检查确认面板背景贴到屏幕底边，底部没有相机画面缝隙，内部快门仍保留安全距离。
+- 真机点击贴底面板右侧空白坐标 `(850,1900)` 后成功拍照并进入结果页，设备查询确认 `versionCode=17`、`versionName=2.15`。
+- 2.15 对应功能提交为 `c19801118baeeda10682d91d540cf6abbe5e3245`。APK 使用同一专用发布证书，`apksigner` v2 校验通过，大小 49,854,796 字节，SHA-256 为 `50f21cf977e5eb9fd1ff7080ceeaf7f03c0bc4c7ab138a225f6312f4d7265d20`。
+- 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/e0285cc92ada506733ff43312f9a446b/GlobalTranslation-2.15-test.apk`，到期时间为 2026-10-04 02:17:16（Asia/Shanghai）。
