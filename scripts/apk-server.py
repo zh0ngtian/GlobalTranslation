@@ -25,6 +25,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / '.local-apk-server'
 FILES = STATE / 'files'
+CHANNELS = STATE / 'channels'
 PORT = 8765
 TTL = 48 * 3600
 LIMIT = 100 * 1024 * 1024
@@ -51,6 +52,76 @@ def records():
     return sorted(result, key=lambda item: item['expires_at_unix'], reverse=True)
 
 
+def channel_manifest(channel):
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', channel):
+        return None
+    path = CHANNELS / f'{channel}.json'
+    try:
+        item = json.loads(path.read_text())
+    except (FileNotFoundError, ValueError):
+        return None
+    required = {
+        'version', 'tag', 'notes', 'pageUrl', 'downloadUrl',
+        'sha256', 'size', 'publishedAt',
+    }
+    return item if required.issubset(item) else None
+
+
+def validate_apk(path):
+    size = path.stat().st_size
+    if not 0 < size <= LIMIT:
+        raise ValueError('APK 大小须在 1 字节至 100 MiB 之间')
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if 'AndroidManifest.xml' not in archive.namelist():
+                raise ValueError('文件不是 APK')
+    except zipfile.BadZipFile as error:
+        raise ValueError('文件不是 APK') from error
+    return size
+
+
+def publish_channel(channel, apk, version, notes):
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', channel):
+        raise ValueError('渠道名仅限小写英文字母、数字和横线')
+    if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+        raise ValueError('版本号必须使用 major.minor.patch 格式')
+    apk = Path(apk)
+    size = validate_apk(apk)
+    config = json.loads((STATE / 'config.json').read_text())
+    base_url = config['base_url'].rstrip('/')
+    CHANNELS.mkdir(mode=0o700, parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    pending_apk = CHANNELS / f'.{channel}.{secrets.token_hex(8)}.apk.part'
+    pending_manifest = CHANNELS / f'.{channel}.{secrets.token_hex(8)}.json.part'
+    try:
+        with apk.open('rb') as source, pending_apk.open('xb') as target:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                target.write(chunk)
+                digest.update(chunk)
+        manifest = {
+            'version': version,
+            'tag': f'v{version}',
+            'notes': notes.strip() or '本次版本未提供更新说明。',
+            'pageUrl': f'{base_url}/channels/{channel}/latest.json',
+            'downloadUrl': f'{base_url}/channels/{channel}/latest.apk',
+            'sha256': digest.hexdigest(),
+            'size': size,
+            'publishedAt': stamp(time.time()),
+        }
+        pending_manifest.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
+        )
+        os.replace(pending_apk, CHANNELS / f'{channel}.apk')
+        os.replace(pending_manifest, CHANNELS / f'{channel}.json')
+        return manifest
+    finally:
+        pending_apk.unlink(missing_ok=True)
+        pending_manifest.unlink(missing_ok=True)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'LocalAPK/1.0'
 
@@ -64,6 +135,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers()
         if self.command != 'HEAD':
@@ -76,6 +148,37 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == '/health':
             return self.reply(200, {'service': LABEL, 'url': self.server.base_url, 'ttl_hours': 48})
+        channel_match = re.fullmatch(
+            r'/channels/([a-z0-9][a-z0-9-]{0,63})/latest\.(json|apk)',
+            path,
+        )
+        if channel_match:
+            channel, extension = channel_match.groups()
+            manifest = channel_manifest(channel)
+            if manifest is None:
+                return self.reply(404, {'error': '固定更新渠道不存在'})
+            if extension == 'json':
+                return self.reply(200, manifest)
+            source_path = CHANNELS / f'{channel}.apk'
+            try:
+                source = source_path.open('rb')
+            except FileNotFoundError:
+                return self.reply(404, {'error': '固定更新渠道不存在'})
+            with source:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/vnd.android.package-archive')
+                self.send_header('Content-Length', str(manifest['size']))
+                self.send_header(
+                    'Content-Disposition',
+                    f"attachment; filename*=UTF-8''{quote(channel + '-latest.apk')}",
+                )
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.end_headers()
+                if self.command != 'HEAD':
+                    shutil.copyfileobj(source, self.wfile, 1024 * 1024)
+            return
         with LOCK:
             items = records()
             if path == '/':
@@ -180,6 +283,7 @@ def serve():
     config = json.loads((STATE / 'config.json').read_text())
     server = ThreadingHTTPServer(('0.0.0.0', PORT), Handler)
     server.base_url = config['base_url']
+    CHANNELS.mkdir(mode=0o700, parents=True, exist_ok=True)
     for path in FILES.glob('*.part'):
         path.unlink()
 
@@ -202,6 +306,7 @@ def start(base_url):
         raise ValueError(f'base-url 应为 http://局域网主机:{PORT}')
     STATE.mkdir(mode=0o700, exist_ok=True)
     FILES.mkdir(mode=0o700, exist_ok=True)
+    CHANNELS.mkdir(mode=0o700, exist_ok=True)
     (STATE / 'config.json').write_text(json.dumps({'base_url': base_url.rstrip('/')}))
     plist = STATE / (LABEL + '.plist')
     plist.write_bytes(plistlib.dumps({
@@ -245,6 +350,11 @@ def main():
     commands.add_parser('status')
     commands.add_parser('serve')
     commands.add_parser('upload').add_argument('apk', type=Path)
+    publish = commands.add_parser('publish-channel')
+    publish.add_argument('channel')
+    publish.add_argument('apk', type=Path)
+    publish.add_argument('--version', required=True)
+    publish.add_argument('--notes', default='')
     args = parser.parse_args()
     if args.command == 'start':
         start(args.base_url)
@@ -257,6 +367,12 @@ def main():
         return 0 if result else 1
     elif args.command == 'upload':
         upload(args.apk)
+    elif args.command == 'publish-channel':
+        print(json.dumps(
+            publish_channel(args.channel, args.apk, args.version, args.notes),
+            ensure_ascii=False,
+            indent=2,
+        ))
     else:
         serve()
     return 0

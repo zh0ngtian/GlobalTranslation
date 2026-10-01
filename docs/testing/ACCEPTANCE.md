@@ -221,6 +221,12 @@ adb exec-out run-as io.github.zh0ngtian.globaltranslation cat cache/real-api-acc
 - 验证后台服务启动、停止及重启。此次 HTTP 验证从 Mac 发起，未另用手机验证局域网访问或网页上传交互；此前 APK 真机安装结论见上节。
 - 实际下载链接、到期时间与校验结果保存在忽略目录 `app/build/reports/local-apk-upload.json` 和 `app/build/reports/local-apk-verification.json`。
 
+## 固定局域网 APK 渠道（2026-10-02）
+
+- `scripts/apk-server.py` 在原有 48 小时随机临时链接之外增加固定只读渠道；固定渠道不参与临时文件到期清理，只能从服务器本机通过 `publish-channel` 命令覆盖。
+- Codex Mobile 渠道固定使用 `/channels/codex-mobile/latest.json` 和 `/channels/codex-mobile/latest.apk`。JSON 包含版本、更新说明、固定下载地址、字节数、SHA-256 和发布时间，并返回 `Access-Control-Allow-Origin: *` 供内置 WebView 读取。
+- `tests/test_apk_server.py` 覆盖首次发布、固定 JSON/APK 的 GET 与 HEAD、摘要和大小、再次发布覆盖及固定渠道不被临时清理。测试使用临时目录和本地随机端口，不写入真实服务状态。
+
 ## 2.6：译文字号匹配原文字号（2026-09-30）
 
 此前覆盖排版把首选字号同时限制为原文行高和“照片宽度 ÷ 40”中的较小值。该上限适合密集小字，却会把告示牌上的大号原文错误压成细小译文。现在首选字号直接取 OCR 文字块的原文行高；现有完整布局检测仍会在译文较长或空间不足时逐级缩小，保持不越界、不省略。

@@ -194,6 +194,12 @@ curl --fail-with-body --upload-file /path/to/GlobalTranslation-2.5-test.apk \
 
 - 上传成功返回 JSON，包含 `url`（直链）、`bytes`、`sha256` 和带时区的 `expires_at`。文件名仅限英文字母、数字、点、横线、下划线，以字母或数字开头并以 `.apk` 结尾。
 - 健康检查：`GET /health`；首页：`GET /`；下载：`GET /files/<随机ID>/<文件名.apk>`，支持 `HEAD` 检查类型与大小。网页也支持选择文件并上传。
+- 服务同时提供不随 48 小时临时文件过期的固定只读渠道。Codex Mobile 使用
+  `http://192.168.123.79:8765/channels/codex-mobile/latest.json` 检查更新，并从
+  `http://192.168.123.79:8765/channels/codex-mobile/latest.apk` 下载；两个 URL 在后续发布中保持不变。
+- 固定渠道只能从服务器本机 CLI 发布，HTTP 不提供覆盖接口。发布命令为
+  `python3 scripts/apk-server.py publish-channel codex-mobile /path/to/CodexMobile-vX.Y.Z.apk --version X.Y.Z --notes '更新说明'`；命令会校验 APK 容器、计算 SHA-256，并原子替换固定 APK 和清单。
+- 修改 `scripts/apk-server.py` 后先运行 `python3 -m unittest tests/test_apk_server.py`，再重启服务使新代码生效。发布后必须用固定 JSON、HEAD、GET 回验版本、类型、长度和 SHA-256。
 - APK、到期信息、日志和 launchd 配置保存在仓库内 `.local-apk-server/`，已加入 `.gitignore`，独立于 Gradle 构建目录。不要将整个仓库、照片或签名目录作为 HTTP 文件根目录。
 - 文件到期立即拒绝下载；服务运行时每分钟及收到读取请求时清理过期文件。停止服务期间不执行清理，下次启动补清理。`stop` 保留未到期文件。
 - 日志：`.local-apk-server/server.log`。启动失败时检查日志及 `lsof -nP -iTCP:8765 -sTCP:LISTEN`；若 launchd 已注册但进程退出，先 `stop` 再 `start`。需要彻底清理时，先停止服务，再删除 `.local-apk-server/`。
