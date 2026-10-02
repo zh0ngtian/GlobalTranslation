@@ -80,6 +80,45 @@ def validate_apk(path):
     return size
 
 
+def version_key(version):
+    if not isinstance(version, str) or not re.fullmatch(r'\d+\.\d+\.\d+', version):
+        return None
+    return tuple(int(part) for part in version.split('.'))
+
+
+def release_history(previous, version, notes, published_at):
+    latest_key = version_key(version)
+    releases = {}
+    history = previous.get('releases') if previous else None
+    if not isinstance(history, list) and previous:
+        history = [{
+            'version': previous.get('version'),
+            'notes': previous.get('notes'),
+            'publishedAt': previous.get('publishedAt'),
+        }]
+    for entry in history or []:
+        if not isinstance(entry, dict):
+            continue
+        entry_key = version_key(entry.get('version'))
+        entry_notes = entry.get('notes')
+        if entry_key is None or entry_key > latest_key or not isinstance(entry_notes, str):
+            continue
+        entry_notes = entry_notes.strip()
+        if not entry_notes:
+            continue
+        releases[entry['version']] = {
+            'version': entry['version'],
+            'notes': entry_notes,
+            'publishedAt': entry.get('publishedAt') or published_at,
+        }
+    releases[version] = {
+        'version': version,
+        'notes': notes,
+        'publishedAt': published_at,
+    }
+    return sorted(releases.values(), key=lambda entry: version_key(entry['version']))
+
+
 def publish_channel(channel, apk, version, notes):
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', channel):
         raise ValueError('渠道名仅限小写英文字母、数字和横线')
@@ -101,15 +140,20 @@ def publish_channel(channel, apk, version, notes):
                     break
                 target.write(chunk)
                 digest.update(chunk)
+        notes = notes.strip() or '本次版本未提供更新说明。'
+        published_at = stamp(time.time())
         manifest = {
             'version': version,
             'tag': f'v{version}',
-            'notes': notes.strip() or '本次版本未提供更新说明。',
+            'notes': notes,
             'pageUrl': f'{base_url}/channels/{channel}/latest.json',
             'downloadUrl': f'{base_url}/channels/{channel}/latest.apk',
             'sha256': digest.hexdigest(),
             'size': size,
-            'publishedAt': stamp(time.time()),
+            'publishedAt': published_at,
+            'releases': release_history(
+                channel_manifest(channel), version, notes, published_at
+            ),
         }
         pending_manifest.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'

@@ -86,6 +86,13 @@ class FixedChannelTest(unittest.TestCase):
                 "sha256": expected_sha256,
                 "size": source.stat().st_size,
                 "publishedAt": manifest["publishedAt"],
+                "releases": [
+                    {
+                        "version": "0.2.31",
+                        "notes": "固定局域网更新渠道",
+                        "publishedAt": manifest["publishedAt"],
+                    }
+                ],
             },
         )
 
@@ -115,7 +122,12 @@ class FixedChannelTest(unittest.TestCase):
             "GET", "/channels/codex-mobile/latest.json"
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(manifest_body)["version"], "0.2.32")
+        manifest = json.loads(manifest_body)
+        self.assertEqual(manifest["version"], "0.2.32")
+        self.assertEqual(
+            [(item["version"], item["notes"]) for item in manifest["releases"]],
+            [("0.2.31", "first"), ("0.2.32", "second")],
+        )
         status, _, apk_body = self.request(
             "GET", "/channels/codex-mobile/latest.apk"
         )
@@ -125,6 +137,39 @@ class FixedChannelTest(unittest.TestCase):
         apk_server.records()
         self.assertTrue((apk_server.CHANNELS / "codex-mobile.json").is_file())
         self.assertTrue((apk_server.CHANNELS / "codex-mobile.apk").is_file())
+
+    def test_republish_same_version_updates_history_without_duplicate(self):
+        first = self.make_apk("CodexMobile-v0.2.31.apk", b"first")
+        replacement = self.make_apk("CodexMobile-v0.2.31-hotfix.apk", b"replacement")
+        apk_server.publish_channel("codex-mobile", first, "0.2.31", "first")
+        manifest = apk_server.publish_channel(
+            "codex-mobile", replacement, "0.2.31", "replacement"
+        )
+
+        self.assertEqual(
+            [(item["version"], item["notes"]) for item in manifest["releases"]],
+            [("0.2.31", "replacement")],
+        )
+
+    def test_publish_migrates_legacy_manifest_into_release_history(self):
+        previous = self.make_apk("CodexMobile-v0.2.30.apk", b"previous")
+        current = self.make_apk("CodexMobile-v0.2.31.apk", b"current")
+        legacy = apk_server.publish_channel(
+            "codex-mobile", previous, "0.2.30", "legacy"
+        )
+        legacy.pop("releases")
+        (apk_server.CHANNELS / "codex-mobile.json").write_text(
+            json.dumps(legacy, ensure_ascii=False)
+        )
+
+        manifest = apk_server.publish_channel(
+            "codex-mobile", current, "0.2.31", "current"
+        )
+
+        self.assertEqual(
+            [(item["version"], item["notes"]) for item in manifest["releases"]],
+            [("0.2.30", "legacy"), ("0.2.31", "current")],
+        )
 
 
 if __name__ == "__main__":
