@@ -31,7 +31,7 @@
 ```bash
 ./gradlew :core:test :data:testDebugUnitTest :app:testDebugUnitTest :app:lintDebug
 ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest
-./gradlew :app:connectedDebugAndroidTest
+./gradlew :app:connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
 ```
 
 手机需要解锁并亮屏。测试会请求相机权限，使用实际相机进行一次拍摄；不保存或导出该相机画面。无真实 Key 时，网络验收用例明确跳过。
@@ -328,3 +328,14 @@ Android Developer Console 的有限分发账号已创建；软件包名称显示
 - 真机点击横线下方右侧空白坐标 `(850,1900)` 后成功拍照并进入结果页，设备查询确认 `versionCode=18`、`versionName=2.16`。
 - 2.16 对应功能提交为 `970be530be63a7bccb68710367ac50ed477948fc`。APK 使用同一专用发布证书，`apksigner` v2 校验通过，大小 49,854,796 字节，SHA-256 为 `01cbb76a048506b7a756f8823bd4b55e34fd5c6b2153937890de0d6f7f10853e`。
 - 本机临时服务的 HEAD／GET 返回 `application/vnd.android.package-archive` 和 49,854,796 字节，重新下载后的 SHA-256 与构建产物一致。局域网下载地址为 `http://192.168.123.79:8765/files/783a05b01e4e1ffa62649769ce07a164/GlobalTranslation-2.16-test.apk`，到期时间为 2026-10-04 02:24:07（Asia/Shanghai）。
+
+## 2.17：按段落连贯翻译（2026-10-06）
+
+发送翻译前为文字块生成请求专用文本，并在请求预算分批之前合并段落内的视觉断行：拉丁文字用空格连接，中日文连续字符直接连接。原始 OCR 文本、块 ID、坐标和原文字号参考不变。空行、列表起始、冒号后的分隔，以及普通 OCR 阅读坐标中明显行距、字号变化和首行缩进保留；缺少完整行几何时保守保留换行。行尾连字符保持原样，内置 Prompt 升为 `photo-translation-v6`，要求连贯理解段落，不复制照片的视觉断行，译文由覆盖层自动换行。
+
+- 完整本地门禁通过：31 项 JVM 测试（core 13、data 9、app 9），Lint、Debug／Release 构建及 Android 测试源码编译均成功。新增回归覆盖英、法、意、日、中、韩断行、CRLF／CR、段落／标题／列表、悬挂缩进、空文本、小数／型号／连字符保留，以及实际 HTTP 请求文本和原始 ID 映射。HTTP 回归使用 MockWebServer，不代表真实译文质量。
+- HONOR Android 12 真机专项用例通过，使用系统字体生成的英、法、意、日四组紧排双行段落，经生产 ML Kit 后确认请求文本成为完整段落且原始 OCR 不变。本次没有新的真实 API Key，未执行真实 DeepSeek 或自然拍摄密集照片验收，也未重跑完整设备套件。
+- 日文 46px 字号、58px 行距样张被 ML Kit 拆为两个独立块，不能视为块内换行合并失败。最终日文回归使用 48px 行距，实际 OCR 为多行块。当前保留跨块与跨栏的位置映射，不重组这些块；同字号且无明显间距／标记的真实段落边界也可能无法恢复。
+- 本次专项测试使用临时 Gradle 初始化脚本，让 Debug 和测试 APK 使用专用发布签名，以便覆盖已有正式版。初始测试未设置保留参数，Gradle 在结束后自动卸载了目标 App，原配置可能随卸载清空；已重新安装正式 Release。随后带保留参数重跑专项用例通过，查询确认目标 App 未被卸载，并再次同证书覆盖恢复正式 Release。后续设备测试必须传入 `-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true`，并在结束后查询目标包仍存在；不得以签名兼容替代数据保留验证。
+- 2.17（versionCode 19）使用同一专用发布证书，`apksigner` v2 校验通过，真机安装和冷启动成功。APK 为 49,854,796 字节，SHA-256 为 `80d848f248d6a84a01c7ef3a66d52d6b497a283a45b1b5db4a60a0f0c482fc34`。
+- 本机临时服务 HEAD／GET 返回 `application/vnd.android.package-archive` 和相同大小，下载 SHA-256 与构建产物一致，首页有效期核对通过。下载地址为 `http://192.168.123.79:8765/files/16479cc91c8a897941a100cd1d553a05/GlobalTranslation-2.17-test.apk`，到期时间为 2026-10-08 18:33:16（Asia/Shanghai）。提交对应关系另保存在忽略目录 `app/build/reports/release-2.17-verification.json`。

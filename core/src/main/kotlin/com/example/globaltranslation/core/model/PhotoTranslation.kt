@@ -67,7 +67,9 @@ data class PhotoPoint(val x: Float, val y: Float)
 data class PhotoTextBlock(
     val id: String, val text: String, val bounds: TextBounds,
     val rotationDegrees: Float = 0f,
-    val cornerPoints: List<PhotoPoint> = emptyList()
+    val cornerPoints: List<PhotoPoint> = emptyList(),
+    /** Zero-based source line indices beginning a new paragraph within this OCR block. */
+    val paragraphStartLines: Set<Int> = emptySet()
 )
 
 data class TranslationResult(

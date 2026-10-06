@@ -3,6 +3,8 @@ package com.example.globaltranslation.data.provider
 import android.graphics.Bitmap
 import com.example.globaltranslation.core.util.DocumentLayout
 import com.example.globaltranslation.core.util.OcrWord
+import com.example.globaltranslation.core.util.ParagraphLine
+import com.example.globaltranslation.core.util.ParagraphText
 import com.google.mlkit.vision.text.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -133,7 +135,19 @@ class MlKitPhotoRecognizer @Inject constructor() : PhotoTextRecognizer {
             val x = lines.sumOf { cos(Math.toRadians(it.angle.toDouble())) * it.text.length.coerceAtLeast(1) }
             val y = lines.sumOf { sin(Math.toRadians(it.angle.toDouble())) * it.text.length.coerceAtLeast(1) }
             val angle = if (lines.isEmpty()) 0f else Math.toDegrees(atan2(y, x)).toFloat()
+            val c = cos(Math.toRadians(angle.toDouble())).toFloat()
+            val s = sin(Math.toRadians(angle.toDouble())).toFloat()
+            val readingLines = block.lines.mapNotNull { line ->
+                val points = line.cornerPoints ?: return@mapNotNull null
+                if (points.isEmpty()) return@mapNotNull null
+                val along = points.map { it.x * c + it.y * s }
+                val across = points.map { -it.x * s + it.y * c }
+                ParagraphLine(line.text, TextBounds(along.min(), across.min(), along.max(), across.max()))
+            }
+            // Missing line geometry must not silently join uncertain paragraph boundaries.
+            val starts = if (readingLines.size == text.lines().size) ParagraphText.paragraphStarts(readingLines)
+                else text.lines().indices.drop(1).toSet()
             if (text.isEmpty()) null else PhotoTextBlock("block_$index", text, bounds, angle,
-                block.cornerPoints?.map { PhotoPoint(it.x.toFloat(), it.y.toFloat()) }.orEmpty())
+                block.cornerPoints?.map { PhotoPoint(it.x.toFloat(), it.y.toFloat()) }.orEmpty(), starts)
         }
 }

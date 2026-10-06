@@ -3,6 +3,7 @@ package com.example.globaltranslation.data.provider
 import com.example.globaltranslation.core.model.*
 import com.example.globaltranslation.core.provider.PhotoTranslator
 import com.example.globaltranslation.core.util.TranslationBatches
+import com.example.globaltranslation.core.util.ParagraphText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -25,7 +26,7 @@ class DeepSeekTranslator(
     override suspend fun translate(blocks: List<PhotoTextBlock>, options: TranslationOptions, apiKey: String): TranslationResult =
         withContext(Dispatchers.IO) {
             if (apiKey.isBlank()) return@withContext TranslationResult(emptyMap(), "请先在设置中填写 DeepSeek API Key。")
-            val parts = TranslationBatches.parts(blocks)
+            val parts = TranslationBatches.parts(blocks.map { it.copy(text = ParagraphText.prepare(it)) })
             val results = linkedMapOf<String, String>()
             var failure: String? = null
             for (batch in TranslationBatches.batches(parts)) {

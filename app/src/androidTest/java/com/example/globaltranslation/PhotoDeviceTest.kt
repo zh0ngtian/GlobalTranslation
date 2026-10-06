@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.globaltranslation.core.model.*
+import com.example.globaltranslation.core.util.ParagraphText
 import com.example.globaltranslation.data.preferences.*
 import com.example.globaltranslation.data.provider.*
 import com.example.globaltranslation.ui.camera.PhotoOverlayView
@@ -82,6 +83,28 @@ class PhotoDeviceTest {
         }
         val blank = printed(emptyList())
         assertTrue(recognizer.recognize(blank, TextScript.LATIN).isEmpty()); blank.recycle()
+    }
+
+    @Test fun wrappedParagraphsFromFourLanguageOcrAreReflowedForTranslation() = runBlocking {
+        val samples = listOf(
+            TextScript.LATIN to listOf("Please keep this door", "closed at all times."),
+            TextScript.LATIN to listOf("Veuillez garder cette porte", "fermée en permanence."),
+            TextScript.LATIN to listOf("Si prega di tenere questa porta", "sempre chiusa."),
+            TextScript.JAPANESE to listOf("このドアは常に", "閉めてください。")
+        )
+        val recognizer = MlKitPhotoRecognizer()
+        for ((script, lines) in samples) {
+            val photo = printed(lines, 46f, if (script == TextScript.JAPANESE) 48f else 58f)
+            try {
+                val blocks = recognizer.recognize(photo, script)
+                val original = blocks.map { it.copy() }
+                val expected = lines.joinToString(if (script == TextScript.JAPANESE) "" else " ")
+                assertTrue("Expected one coherent paragraph: $expected; OCR: $blocks",
+                    blocks.any { ParagraphText.prepare(it) == expected })
+                assertEquals(original, blocks)
+                assertTrue("Fixture must exercise actual OCR line wrapping", blocks.any { '\n' in it.text })
+            } finally { photo.recycle() }
+        }
     }
 
     @Test fun overlayClipsAndKeepsFullTextAccessibleAtLargeFontScales() {

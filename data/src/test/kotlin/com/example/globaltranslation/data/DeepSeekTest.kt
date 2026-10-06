@@ -79,6 +79,23 @@ class DeepSeekTest {
         }
     }
 
+    @Test fun httpPayloadReflowsParagraphsWithoutChangingSourceOrBlockMapping() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(envelope(valid)))
+            val source = block(text = "NOTICE\nPlease keep this door\nclosed.\n\n1. Keep your\nticket.\n2. Exit here.")
+                .copy(paragraphStartLines = setOf(1))
+            val original = source.copy()
+            val result = DeepSeekTranslator(OkHttpClient(), server.url("/").toString())
+                .translate(listOf(source), options, "test-only")
+            assertEquals(setOf(source.id), result.translations.keys)
+            val messages = JSONObject(server.takeRequest().body.readUtf8()).getJSONArray("messages")
+            val input = JSONObject(messages.getJSONObject(1).getString("content")).getJSONArray("blocks").getJSONObject(0)
+            assertEquals("b0p0", input.getString("id"))
+            assertEquals("NOTICE\nPlease keep this door closed.\n\n1. Keep your ticket.\n2. Exit here.", input.getString("text"))
+            assertEquals(original, source)
+        }
+    }
+
     @Test fun partialFailureRetainsCompletedOriginalBlocks() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody(envelope(valid)))
