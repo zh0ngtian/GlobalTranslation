@@ -2,6 +2,7 @@ import hashlib
 import http.client
 import importlib.util
 import json
+import plistlib
 from pathlib import Path
 import tempfile
 import threading
@@ -58,6 +59,53 @@ class FixedChannelTest(unittest.TestCase):
         headers = dict(response.getheaders())
         connection.close()
         return response.status, headers, body
+
+    def make_ipa(self, name, payload):
+        source = self.root / name
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('Payload/Test.app/Info.plist', plistlib.dumps({
+                'CFBundleIdentifier': 'vip.loock.codexmobile',
+                'CFBundleExecutable': 'Test',
+            }))
+            archive.writestr('Payload/Test.app/Test', payload)
+        return source
+
+    def test_fixed_ipa_republish_preserves_android_and_survives_cleanup(self):
+        android = self.make_apk('android.apk', b'android')
+        android_manifest = apk_server.publish_channel('codex-mobile', android, '0.2.92', 'android')
+        for version in ['0.2.90', '0.2.91']:
+            source = self.make_ipa('ios.ipa', version.encode())
+            manifest = apk_server.publish_channel('codex-mobile', source, version, 'ios')
+        self.assertEqual(manifest['version'], '0.2.91')
+        self.assertEqual([r['version'] for r in manifest['releases']], ['0.2.90', '0.2.91'])
+        self.assertTrue(manifest['downloadUrl'].endswith('/latest.ipa'))
+        self.assertTrue(manifest['pageUrl'].endswith('/latest-ios.json'))
+        apk_server.records()
+        for method in ['HEAD', 'GET']:
+            status, headers, body = self.request(method, '/channels/codex-mobile/latest.ipa')
+            self.assertEqual(status, 200)
+            self.assertEqual(headers['Content-Type'], 'application/octet-stream')
+            self.assertEqual(int(headers['Content-Length']), source.stat().st_size)
+            self.assertIn('codex-mobile-latest.ipa', headers['Content-Disposition'])
+            self.assertEqual(body, source.read_bytes() if method == 'GET' else b'')
+        status, _, body = self.request('GET', '/channels/codex-mobile/latest-ios.json')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), manifest)
+        self.assertEqual(manifest['sha256'], hashlib.sha256(source.read_bytes()).hexdigest())
+        self.assertEqual(json.loads(self.request('GET', '/channels/codex-mobile/latest.json')[2]), android_manifest)
+        self.assertEqual(self.request('GET', '/channels/codex-mobile/latest.apk')[2], android.read_bytes())
+        apk_server.publish_channel('codex-mobile', android, '0.2.93', 'android update')
+        self.assertEqual(json.loads(self.request('GET', '/channels/codex-mobile/latest-ios.json')[2]), manifest)
+        self.assertEqual(self.request('GET', '/channels/missing/latest.ipa')[0], 404)
+
+    def test_fixed_ipa_rejects_invalid_package_without_replacing_release(self):
+        source = self.make_ipa('good.ipa', b'valid')
+        manifest = apk_server.publish_channel('codex-mobile', source, '0.2.91', 'ios')
+        invalid = self.make_apk('invalid.ipa', b'not ios')
+        with self.assertRaises(ValueError):
+            apk_server.publish_channel('codex-mobile', invalid, '0.2.92', 'invalid')
+        self.assertEqual(json.loads(self.request('GET', '/channels/codex-mobile/latest-ios.json')[2]), manifest)
+        self.assertEqual(self.request('GET', '/channels/codex-mobile/latest.ipa')[2], source.read_bytes())
 
     def test_publish_channel_exposes_fixed_manifest_and_apk(self):
         source = self.make_apk("CodexMobile-v0.2.31.apk", b"first")

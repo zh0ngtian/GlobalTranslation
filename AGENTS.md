@@ -201,6 +201,8 @@ curl --fail-with-body --upload-file /path/to/GlobalTranslation-2.5-test.apk \
   `http://192.168.123.79:8765/channels/codex-mobile/latest.apk` 下载；两个 URL 在后续发布中保持不变。
 - 固定渠道只能从服务器本机 CLI 发布，HTTP 不提供覆盖接口。发布命令为
   `python3 scripts/apk-server.py publish-channel codex-mobile /path/to/CodexMobile-vX.Y.Z.apk --version X.Y.Z --notes '更新说明'`；命令会校验 APK 容器、计算 SHA-256，并原子替换固定 APK 和清单。
+- Codex Mobile 的 iOS 固定下载地址为 `http://192.168.123.79:8765/channels/codex-mobile/latest.ipa`，独立清单为 `http://192.168.123.79:8765/channels/codex-mobile/latest-ios.json`；不参与 48 小时清理，不覆盖 Android 清单或 APK。以后 iOS 交付固定使用该地址。
+- 发布 IPA 使用 `python3 scripts/apk-server.py publish-channel codex-mobile /path/to/CodexMobile-vX.Y.Z-unsigned.ipa --version X.Y.Z --notes '更新说明'`；按扩展名校验安装包并更新对应平台。发布后用 iOS 清单、HEAD 和 GET 核对版本、类型、大小与 SHA-256，交付时注明签名状态。
 - 修改 `scripts/apk-server.py` 后先运行 `python3 -m unittest tests/test_apk_server.py`，再重启服务使新代码生效。发布后必须用固定 JSON、HEAD、GET 回验版本、类型、长度和 SHA-256。
 - APK、到期信息、日志和 launchd 配置保存在仓库内 `.local-apk-server/`，已加入 `.gitignore`，独立于 Gradle 构建目录。不要将整个仓库、照片或签名目录作为 HTTP 文件根目录。
 - 文件到期立即拒绝下载；服务运行时每分钟及收到读取请求时清理过期文件。停止服务期间不执行清理，下次启动补清理。`stop` 保留未到期文件。

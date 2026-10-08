@@ -35,6 +35,30 @@ LOCAL = f'http://127.0.0.1:{PORT}'
 LOCK = threading.RLock()
 
 
+def content_type(name):
+    return 'application/octet-stream' if name.endswith('.ipa') else 'application/vnd.android.package-archive'
+
+
+def validate_package(path, extension):
+    if extension == '.apk':
+        validate_apk(path)
+        return
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+            info_paths = [name for name in names if re.fullmatch(r'Payload/[^/]+\.app/Info\.plist', name)]
+            if len(info_paths) != 1:
+                raise ValueError('文件不是 IPA：需要一个 Payload/*.app')
+            info = plistlib.loads(archive.read(info_paths[0]))
+            executable = info.get('CFBundleExecutable')
+            if not info.get('CFBundleIdentifier') or not isinstance(executable, str) or '/' in executable:
+                raise ValueError('文件不是 IPA：缺少应用标识或可执行文件')
+            if info_paths[0].removesuffix('Info.plist') + executable not in names:
+                raise ValueError('文件不是 IPA：缺少可执行文件')
+    except (zipfile.BadZipFile, plistlib.InvalidFileException, KeyError, AttributeError) as error:
+        raise ValueError('文件不是 IPA') from error
+
+
 def stamp(seconds):
     return datetime.fromtimestamp(seconds, timezone.utc).astimezone().isoformat(timespec='seconds')
 
@@ -52,10 +76,11 @@ def records():
     return sorted(result, key=lambda item: item['expires_at_unix'], reverse=True)
 
 
-def channel_manifest(channel):
+def channel_manifest(channel, extension='.apk'):
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', channel):
         return None
-    path = CHANNELS / f'{channel}.json'
+    suffix = '-ios' if extension == '.ipa' else ''
+    path = CHANNELS / f'{channel}{suffix}.json'
     try:
         item = json.loads(path.read_text())
     except (FileNotFoundError, ValueError):
@@ -125,12 +150,21 @@ def publish_channel(channel, apk, version, notes):
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('版本号必须使用 major.minor.patch 格式')
     apk = Path(apk)
-    size = validate_apk(apk)
+    extension = apk.suffix
+    if extension not in ('.apk', '.ipa'):
+        raise ValueError('固定渠道仅支持 APK 或 IPA')
+    size = apk.stat().st_size
+    if not 0 < size <= LIMIT:
+        raise ValueError('安装包大小须在 1 字节至 100 MiB 之间')
+    validate_package(apk, extension)
+    suffix = '-ios' if extension == '.ipa' else ''
+    manifest_name = f'{channel}{suffix}.json'
+    manifest_url = f'latest{suffix}.json'
     config = json.loads((STATE / 'config.json').read_text())
     base_url = config['base_url'].rstrip('/')
     CHANNELS.mkdir(mode=0o700, parents=True, exist_ok=True)
     digest = hashlib.sha256()
-    pending_apk = CHANNELS / f'.{channel}.{secrets.token_hex(8)}.apk.part'
+    pending_apk = CHANNELS / f'.{channel}.{secrets.token_hex(8)}{extension}.part'
     pending_manifest = CHANNELS / f'.{channel}.{secrets.token_hex(8)}.json.part'
     try:
         with apk.open('rb') as source, pending_apk.open('xb') as target:
@@ -146,20 +180,20 @@ def publish_channel(channel, apk, version, notes):
             'version': version,
             'tag': f'v{version}',
             'notes': notes,
-            'pageUrl': f'{base_url}/channels/{channel}/latest.json',
-            'downloadUrl': f'{base_url}/channels/{channel}/latest.apk',
+            'pageUrl': f'{base_url}/channels/{channel}/{manifest_url}',
+            'downloadUrl': f'{base_url}/channels/{channel}/latest{extension}',
             'sha256': digest.hexdigest(),
             'size': size,
             'publishedAt': published_at,
             'releases': release_history(
-                channel_manifest(channel), version, notes, published_at
+                channel_manifest(channel, extension), version, notes, published_at
             ),
         }
         pending_manifest.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
         )
-        os.replace(pending_apk, CHANNELS / f'{channel}.apk')
-        os.replace(pending_manifest, CHANNELS / f'{channel}.json')
+        os.replace(pending_apk, CHANNELS / f'{channel}{extension}')
+        os.replace(pending_manifest, CHANNELS / manifest_name)
         return manifest
     finally:
         pending_apk.unlink(missing_ok=True)
@@ -193,28 +227,29 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/health':
             return self.reply(200, {'service': LABEL, 'url': self.server.base_url, 'ttl_hours': 48})
         channel_match = re.fullmatch(
-            r'/channels/([a-z0-9][a-z0-9-]{0,63})/latest\.(json|apk)',
+            r'/channels/([a-z0-9][a-z0-9-]{0,63})/(latest\.(?:json|apk|ipa)|latest-ios\.json)',
             path,
         )
         if channel_match:
-            channel, extension = channel_match.groups()
-            manifest = channel_manifest(channel)
+            channel, filename = channel_match.groups()
+            extension = '.ipa' if filename in ('latest.ipa', 'latest-ios.json') else '.apk'
+            manifest = channel_manifest(channel, extension)
             if manifest is None:
                 return self.reply(404, {'error': '固定更新渠道不存在'})
-            if extension == 'json':
+            if filename.endswith('.json'):
                 return self.reply(200, manifest)
-            source_path = CHANNELS / f'{channel}.apk'
+            source_path = CHANNELS / f'{channel}{extension}'
             try:
                 source = source_path.open('rb')
             except FileNotFoundError:
                 return self.reply(404, {'error': '固定更新渠道不存在'})
             with source:
                 self.send_response(200)
-                self.send_header('Content-Type', 'application/vnd.android.package-archive')
+                self.send_header('Content-Type', content_type(filename))
                 self.send_header('Content-Length', str(manifest['size']))
                 self.send_header(
                     'Content-Disposition',
-                    f"attachment; filename*=UTF-8''{quote(channel + '-latest.apk')}",
+                    f"attachment; filename*=UTF-8''{quote(channel + '-latest' + extension)}",
                 )
                 self.send_header('Cache-Control', 'no-store')
                 self.send_header('Access-Control-Allow-Origin', '*')
